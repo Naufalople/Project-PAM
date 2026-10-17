@@ -10,6 +10,7 @@ import '../layanan/layanan_otentikasi.dart';
 import '../widget/dialog_sukses.dart';
 import '../widget/dialog_peringatan.dart';
 import 'halaman_sertifikat_blockchain.dart';
+import 'halaman_status_pesanan.dart';
 
 // Halaman Pembayaran (Checkout) dengan Verifikasi Biometrik Sidik Jari & Pencatatan Blockchain
 class HalamanCheckout extends StatefulWidget {
@@ -101,7 +102,12 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (context) => const HalamanSertifikatBlockchain(),
+              builder: (context) => HalamanStatusPesanan(
+                idPesanan: idPesanan,
+                namaBarang: namaBarangList.join(', '),
+                negaraAsal: negaraAsal,
+                totalHargaIdr: _totalBayar,
+              ),
             ),
           );
         },

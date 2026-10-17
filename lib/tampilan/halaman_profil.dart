@@ -5,6 +5,7 @@ import 'halaman_masuk.dart';
 import 'halaman_saran_kesan.dart';
 import 'halaman_sertifikat_blockchain.dart';
 import 'halaman_peta_lokasi.dart';
+import 'halaman_status_pesanan.dart';
 
 // Halaman Profil Pengguna: Informasi Akun, Foto, Sertifikat Blockchain, dan Logout
 class HalamanProfil extends StatefulWidget {
@@ -129,6 +130,26 @@ class _HalamanProfilState extends State<HalamanProfil> {
               ),
               child: Column(
                 children: [
+                  ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.local_shipping_rounded, color: Colors.deepOrange.shade800),
+                    ),
+                    title: const Text('Pesanan Saya & Rekber Escrow', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    subtitle: const Text('Lacak status barang & perlindungan dana', style: TextStyle(fontSize: 11)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const HalamanStatusPesanan()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
                   ListTile(
                     leading: Container(
                       padding: const EdgeInsets.all(8),

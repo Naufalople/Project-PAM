@@ -8,6 +8,7 @@ import 'halaman_mini_game.dart';
 import 'halaman_peta_lokasi.dart';
 import 'halaman_sertifikat_blockchain.dart';
 import 'halaman_chat_traveler.dart';
+import 'halaman_status_pesanan.dart';
 
 // Halaman Hub Fitur Cerdas: Pusat Navigasi Seluruh Fitur Khusus Tugas Akhir
 class HalamanFiturCerdas extends StatelessWidget {
@@ -87,6 +88,14 @@ class HalamanFiturCerdas extends StatelessWidget {
         'warna': Colors.teal.shade600,
         'halaman': const HalamanChatTraveler(),
         'tag': 'Komunikasi',
+      },
+      {
+        'judul': 'Pelacak Pesanan & Rekber Escrow',
+        'subjudul': 'Pantau siklus titipan, proteksi dana rekber, & LBS',
+        'ikon': Icons.local_shipping_rounded,
+        'warna': Colors.deepOrange.shade700,
+        'halaman': const HalamanStatusPesanan(),
+        'tag': 'Alur Bisnis',
       },
     ];
 

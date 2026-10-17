@@ -113,6 +113,25 @@ class LayananOtentikasi {
     return null; // Login gagal
   }
 
+  // Proses Masuk Cepat dengan Biometrik (Menggunakan Akun Terdaftar / Email Input)
+  static Future<ModelPengguna?> masukDenganBiometrik({String? email}) async {
+    final List<ModelPengguna> semuaAkun = await ambilSemuaAkun();
+    if (semuaAkun.isEmpty) return null;
+
+    ModelPengguna targetAkun;
+    if (email != null && email.trim().isNotEmpty) {
+      targetAkun = semuaAkun.firstWhere(
+        (a) => a.email.toLowerCase() == email.trim().toLowerCase(),
+        orElse: () => semuaAkun.first,
+      );
+    } else {
+      targetAkun = semuaAkun.first;
+    }
+
+    await _simpanSesi(targetAkun);
+    return targetAkun;
+  }
+
   // Simpan data sesi pengguna ke SharedPreferences
   static Future<void> _simpanSesi(ModelPengguna pengguna) async {
     final prefs = await SharedPreferences.getInstance();

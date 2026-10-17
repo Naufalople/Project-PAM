@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../layanan/layanan_otentikasi.dart';
 import '../layanan/layanan_biometrik.dart';
 import '../widget/dialog_peringatan.dart';
@@ -15,8 +16,12 @@ class HalamanMasuk extends StatefulWidget {
 
 class _HalamanMasukState extends State<HalamanMasuk> {
   final _formKunci = GlobalKey<FormState>();
-  final TextEditingController _emailController = TextEditingController(text: 'budi@jastipgo.com');
-  final TextEditingController _passwordController = TextEditingController(text: 'password123');
+  final TextEditingController _emailController = TextEditingController(
+    text: 'budi@jastipgo.com',
+  );
+  final TextEditingController _passwordController = TextEditingController(
+    text: 'password123',
+  );
   bool _sedangMemuat = false;
   bool _sembunyikanPassword = true;
 
@@ -67,19 +72,16 @@ class _HalamanMasukState extends State<HalamanMasuk> {
     if (!mounted) return;
 
     if (sukses) {
-      // Login langsung menggunakan akun utama
-      final semuaAkun = await LayananOtentikasi.ambilSemuaAkun();
-      if (semuaAkun.isNotEmpty) {
-        await LayananOtentikasi.prosesMasuk(
-          email: semuaAkun.first.email,
-          password: 'password123',
+      final pengguna = await LayananOtentikasi.masukDenganBiometrik(
+        email: _emailController.text.trim(),
+      );
+      if (!mounted) return;
+      if (pengguna != null) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HalamanUtama()),
         );
       }
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const HalamanUtama()),
-      );
     } else {
       showDialog(
         context: context,
@@ -98,7 +100,10 @@ class _HalamanMasukState extends State<HalamanMasuk> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24.0,
+              vertical: 16.0,
+            ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -236,7 +241,9 @@ class _HalamanMasukState extends State<HalamanMasuk> {
                             ),
                             elevation: 2,
                           ),
-                          onPressed: _sedangMemuat ? null : _masukDenganEmailPassword,
+                          onPressed: _sedangMemuat
+                              ? null
+                              : _masukDenganEmailPassword,
                           child: _sedangMemuat
                               ? const SizedBox(
                                   height: 20,
@@ -285,11 +292,20 @@ class _HalamanMasukState extends State<HalamanMasuk> {
                   children: [
                     const Text('Belum punya akun JastipGo? '),
                     GestureDetector(
-                      onTap: () {
-                        Navigator.push(
+                      onTap: () async {
+                        final String? emailTerdaftar = await Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => const HalamanDaftar()),
+                          MaterialPageRoute(
+                            builder: (context) => const HalamanDaftar(),
+                          ),
                         );
+                        if (emailTerdaftar != null &&
+                            emailTerdaftar.isNotEmpty) {
+                          setState(() {
+                            _emailController.text = emailTerdaftar;
+                            _passwordController.clear();
+                          });
+                        }
                       },
                       child: Text(
                         'Daftar Baru',

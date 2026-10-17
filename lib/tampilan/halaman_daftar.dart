@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../layanan/layanan_otentikasi.dart';
 import '../widget/dialog_sukses.dart';
 import '../widget/dialog_peringatan.dart';
@@ -17,7 +18,8 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _teleponController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _konfirmasiPasswordController = TextEditingController();
+  final TextEditingController _konfirmasiPasswordController =
+      TextEditingController();
 
   bool _sedangMemuat = false;
   bool _sembunyikanPassword = true;
@@ -67,7 +69,10 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
           judul: 'Registrasi Berhasil',
           deskripsi: 'Akun Anda berhasil dibuat dengan enkripsi SHA-256. Silakan masuk menggunakan akun baru Anda.',
           saatKlikOke: () {
-            Navigator.pop(context); // Kembali ke halaman login
+            Navigator.pop(
+              context,
+              _emailController.text.trim(),
+            ); // Kembali ke login dengan membawa email baru
           },
         ),
       );
@@ -137,7 +142,9 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
                         decoration: InputDecoration(
                           labelText: 'Nama Lengkap',
                           prefixIcon: const Icon(Icons.person_outline),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           filled: true,
                           fillColor: const Color(0xFFF9FAFB),
                         ),
@@ -157,7 +164,9 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
                         decoration: InputDecoration(
                           labelText: 'Alamat Email',
                           prefixIcon: const Icon(Icons.email_outlined),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           filled: true,
                           fillColor: const Color(0xFFF9FAFB),
                         ),
@@ -178,7 +187,9 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
                           labelText: 'Nomor WhatsApp',
                           hintText: '0812xxxxxxxx',
                           prefixIcon: const Icon(Icons.phone_outlined),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           filled: true,
                           fillColor: const Color(0xFFF9FAFB),
                         ),
@@ -200,13 +211,20 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
                           prefixIcon: const Icon(Icons.lock_outline),
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _sembunyikanPassword ? Icons.visibility_off : Icons.visibility,
+                              _sembunyikanPassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
                             ),
                             onPressed: () {
-                              setState(() => _sembunyikanPassword = !_sembunyikanPassword);
+                              setState(
+                                () => _sembunyikanPassword =
+                                    !_sembunyikanPassword,
+                              );
                             },
                           ),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           filled: true,
                           fillColor: const Color(0xFFF9FAFB),
                         ),
@@ -226,7 +244,9 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
                         decoration: InputDecoration(
                           labelText: 'Ulangi Password',
                           prefixIcon: const Icon(Icons.lock_reset),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           filled: true,
                           fillColor: const Color(0xFFF9FAFB),
                         ),
@@ -256,11 +276,17 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
                               ? const SizedBox(
                                   height: 20,
                                   width: 20,
-                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : const Text(
                                   'DAFTAR AKUN',
-                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
                                 ),
                         ),
                       ),

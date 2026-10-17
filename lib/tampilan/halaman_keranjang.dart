@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import '../model/model_keranjang.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_konversi.dart';
 import 'halaman_checkout.dart';
 
-// Halaman Keranjang Belanja Titipan (Penyimpanan Lokal Offline Hive)
+// Halaman Keranjang Belanja Titipan (Penyimpanan Lokal Offline Hive Reaktif)
 class HalamanKeranjang extends StatefulWidget {
   final Function(int)? padaPindahTab;
 
@@ -15,56 +16,43 @@ class HalamanKeranjang extends StatefulWidget {
 }
 
 class _HalamanKeranjangState extends State<HalamanKeranjang> {
-  List<ModelKeranjang> _daftarKeranjang = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _muatKeranjang();
-  }
-
-  void _muatKeranjang() {
-    setState(() {
-      _daftarKeranjang = LayananBasisDataLokal.ambilSemuaKeranjang();
-    });
-  }
-
   // Tambah / Kurang Jumlah Item
   Future<void> _ubahJumlah(int indeks, int jumlahBaru) async {
     await LayananBasisDataLokal.ubahJumlahItem(indeks, jumlahBaru);
-    _muatKeranjang();
   }
 
   // Hapus Item
   Future<void> _hapusItem(int indeks) async {
     await LayananBasisDataLokal.hapusDariKeranjang(indeks);
-    _muatKeranjang();
   }
 
   @override
   Widget build(BuildContext context) {
-    final int totalHarga = LayananBasisDataLokal.hitungTotalHargaKeranjang();
+    return ValueListenableBuilder<Box>(
+      valueListenable: Hive.box(LayananBasisDataLokal.namaKotakKeranjang).listenable(),
+      builder: (context, box, _) {
+        final List<ModelKeranjang> daftarKeranjang = LayananBasisDataLokal.ambilSemuaKeranjang();
+        final int totalHarga = LayananBasisDataLokal.hitungTotalHargaKeranjang();
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FC),
-      appBar: AppBar(
-        title: const Text('Keranjang Titipan (Hive)'),
-        backgroundColor: Colors.teal.shade800,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          if (_daftarKeranjang.isNotEmpty)
-            IconButton(
-              tooltip: 'Kosongkan Keranjang',
-              icon: const Icon(Icons.delete_sweep_outlined),
-              onPressed: () async {
-                await LayananBasisDataLokal.kosongkanKeranjang();
-                _muatKeranjang();
-              },
-            ),
-        ],
-      ),
-      body: _daftarKeranjang.isEmpty
+        return Scaffold(
+          backgroundColor: const Color(0xFFF7F9FC),
+          appBar: AppBar(
+            title: const Text('Keranjang Titipan (Hive)'),
+            backgroundColor: Colors.teal.shade800,
+            foregroundColor: Colors.white,
+            elevation: 0,
+            actions: [
+              if (daftarKeranjang.isNotEmpty)
+                IconButton(
+                  tooltip: 'Kosongkan Keranjang',
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                  onPressed: () async {
+                    await LayananBasisDataLokal.kosongkanKeranjang();
+                  },
+                ),
+            ],
+          ),
+          body: daftarKeranjang.isEmpty
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(32.0),
@@ -129,7 +117,7 @@ class _HalamanKeranjangState extends State<HalamanKeranjang> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Tersimpan di Basis Data Lokal Hive (${_daftarKeranjang.length} barang)',
+                          'Tersimpan di Basis Data Lokal Hive (${daftarKeranjang.length} barang)',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
@@ -145,9 +133,9 @@ class _HalamanKeranjangState extends State<HalamanKeranjang> {
                 Expanded(
                   child: ListView.builder(
                     padding: const EdgeInsets.all(16),
-                    itemCount: _daftarKeranjang.length,
+                    itemCount: daftarKeranjang.length,
                     itemBuilder: (context, index) {
-                      final item = _daftarKeranjang[index];
+                      final item = daftarKeranjang[index];
                       return Dismissible(
                         key: ValueKey('keranjang-${item.idBarang}-$index'),
                         direction: DismissDirection.endToStart,
@@ -297,9 +285,9 @@ class _HalamanKeranjangState extends State<HalamanKeranjang> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => HalamanCheckout(daftarItem: _daftarKeranjang),
+                              builder: (context) => HalamanCheckout(daftarItem: daftarKeranjang),
                             ),
-                          ).then((_) => _muatKeranjang());
+                          );
                         },
                         child: const Text('CHECKOUT', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
@@ -308,6 +296,8 @@ class _HalamanKeranjangState extends State<HalamanKeranjang> {
                 ),
               ],
             ),
+        );
+      },
     );
   }
 }

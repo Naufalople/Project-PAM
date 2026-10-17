@@ -35,10 +35,12 @@ class _HalamanSertifikatBlockchainState extends State<HalamanSertifikatBlockchai
     showDialog(
       context: context,
       builder: (context) => DialogSukses(
-        judul: valid ? 'Integritas Valid 100%' : 'Peringatan Manipulasi!',
+        judul: valid ? 'Struk Asli & Terverifikasi!' : 'Peringatan Manipulasi!',
         deskripsi: valid
-            ? 'Semua blok transaksi (${_rantaiBlok.length} blok) telah diverifikasi menggunakan algoritma SHA-256 berantai. Tidak ada data yang pernah diubah atau dipalsukan!'
-            : 'Terdeteksi pemutusan rantai blok! Data transaksi tidak sesuai dengan hash sebelumnya.',
+            ? 'Hasil Verifikasi: VALID 100%\n\n'
+                'Tujuan Fitur Blockchain:\n'
+                'Setiap bukti struk belanja luar negeri dikunci menggunakan Hash SHA-256 berantai. Verifikasi ini membuktikan bahwa struk barang Anda ASLI dari toko resmi dan datanya tidak pernah direkayasa oleh traveler!'
+            : 'Terdeteksi pemutusan rantai blok! Data transaksi telah diubah secara ilegal.',
       ),
     );
   }
@@ -89,16 +91,23 @@ class _HalamanSertifikatBlockchainState extends State<HalamanSertifikatBlockchai
             const SizedBox(height: 20),
 
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Rantai Blok Transaksi (${_rantaiBlok.length} Blok):',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+                Expanded(
+                  child: Text(
+                    'Rantai Blok (${_rantaiBlok.length} Blok):',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
+                  ),
                 ),
-                TextButton.icon(
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
                   onPressed: _jalankanVerifikasiIntegritas,
-                  icon: const Icon(Icons.check_circle_outline, size: 16),
-                  label: const Text('Verifikasi Hash'),
+                  icon: const Icon(Icons.check_circle_outline, size: 15),
+                  label: const Text('Cek Keaslian', style: TextStyle(fontSize: 11.5)),
                 ),
               ],
             ),

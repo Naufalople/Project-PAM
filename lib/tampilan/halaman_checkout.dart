@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../model/model_keranjang.dart';
 import '../model/model_blok_transaksi.dart';
+import '../model/model_pesanan_jastip.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_konversi.dart';
 import '../layanan/layanan_biometrik.dart';
@@ -26,6 +27,62 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
   String _bankPilihan = 'BCA';
   bool _sedangMemproses = false;
 
+  // 1. Metode Serah Terima Barang (Dipilih & Ditentukan Oleh Pemesan saat Checkout)
+  String _metodePenyerahan = 'COD_LBS'; // 'COD_LBS' atau 'KURIR_ANTAR'
+  final TextEditingController _alamatController = TextEditingController(
+    text: 'Jl. Babarsari No. 12, Caturtunggal, Sleman, D.I. Yogyakarta',
+  );
+
+  // 2. Voucher & Promo (Bisa Didapat dari Shake Promo / Mini Game)
+  List<ModelVoucher> _daftarVoucherTersedia = [];
+  ModelVoucher? _voucherTerpilih;
+  final TextEditingController _kodePromoManualController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _muatDaftarVoucher();
+  }
+
+  @override
+  void dispose() {
+    _alamatController.dispose();
+    _kodePromoManualController.dispose();
+    super.dispose();
+  }
+
+  void _muatDaftarVoucher() {
+    final list = LayananBasisDataLokal.ambilSemuaVoucher();
+    setState(() {
+      _daftarVoucherTersedia = list;
+    });
+  }
+
+  void _terapkanKodePromoManual() {
+    final kode = _kodePromoManualController.text.trim().toUpperCase();
+    if (kode.isEmpty) return;
+
+    final voucher = _daftarVoucherTersedia.where((v) => v.kode.toUpperCase() == kode).toList();
+    if (voucher.isNotEmpty) {
+      setState(() {
+        _voucherTerpilih = voucher.first;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('🎉 Promo "${voucher.first.judul}" aktif! Hemat ${LayananKonversi.formatRupiah(voucher.first.potonganIdr)}'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Kode promo tidak valid atau sudah digunakan.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
   int get _subtotal {
     int total = 0;
     for (var item in widget.daftarItem) {
@@ -35,7 +92,11 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
   }
 
   int get _biayaJasaTitip => (_subtotal * 0.05).round(); // Biaya jastip 5%
-  int get _totalBayar => _subtotal + _biayaJasaTitip;
+  int get _potonganVoucher => _voucherTerpilih?.potonganIdr ?? 0;
+  int get _totalBayar {
+    final total = _subtotal + _biayaJasaTitip - _potonganVoucher;
+    return total > 0 ? total : 0;
+  }
 
   // Proses Pembayaran dengan Sensor Biometrik Sidik Jari
   Future<void> _prosesKonfirmasiPembayaran() async {
@@ -62,7 +123,7 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
 
     // 2. Ambil data profil pembeli
     final profil = await LayananOtentikasi.ambilProfilAktif();
-    final String namaPembeli = profil?.nama ?? 'Budi Santoso';
+    final String namaPembeli = profil?.nama ?? 'Pengguna JastipGo';
     final String idPesanan = 'PO-JSTP-${DateTime.now().millisecondsSinceEpoch % 1000000}';
     final List<String> namaBarangList = widget.daftarItem.map((e) => '${e.namaBarang} (x${e.jumlah})').toList();
     final String negaraAsal = widget.daftarItem.isNotEmpty ? widget.daftarItem.first.negara : 'Global';
@@ -76,10 +137,41 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
       negaraAsal: negaraAsal,
     );
 
-    // 4. Kosongkan Keranjang Lokal Hive
+    // 4. Buat dan Simpan Objek Pesanan Lengkap ke Hive
+    final ModelPesananJastip pesananBaru = ModelPesananJastip(
+      idPesanan: idPesanan,
+      tanggal: DateTime.now(),
+      negaraAsal: negaraAsal,
+      namaTraveler: 'Dimas Pratama (Traveler Terverifikasi)',
+      lokasiTerkini: 'Sedang di Toko Resmi $negaraAsal (Menunggu Traveler Meng-ACC)',
+      tahapStatus: 1, // Dana Ditahan Rekber
+      metodePenyerahan: _metodePenyerahan,
+      alamatPengiriman: _metodePenyerahan == 'KURIR_ANTAR' ? _alamatController.text.trim() : '',
+      totalHargaIdr: _totalBayar,
+      daftarBarang: widget.daftarItem
+          .map((item) => ModelItemPesanan(
+                namaBarang: item.namaBarang,
+                fotoUrl: item.fotoUrl,
+                negara: item.negara,
+                namaToko: 'Official Flagship Store',
+                jumlah: item.jumlah,
+                hargaIdr: item.totalHargaIdr,
+              ))
+          .toList(),
+    );
+    await LayananBasisDataLokal.tambahPesanan(pesananBaru);
+
+    // 5. Jika voucher digunakan, hapus voucher dari database agar hilang setelah dipakai
+    if (_voucherTerpilih != null) {
+      await LayananBasisDataLokal.gunakanVoucher(_voucherTerpilih!.kode);
+    }
+
+    // 6. Kosongkan Keranjang Lokal Hive
     await LayananBasisDataLokal.kosongkanKeranjang();
 
-    // 5. Picu Notifikasi Mobile
+    if (!mounted) return;
+
+    // 7. Picu Notifikasi Mobile
     LayananNotifikasi.kirimNotifikasi(
       context,
       judul: 'Pembayaran Jastip Berhasil! 🎉',
@@ -90,7 +182,7 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
 
     setState(() => _sedangMemproses = false);
 
-    // 6. Tampilkan Dialog Sukses & Tawarkan Buka Sertifikat Blockchain
+    // 8. Tampilkan Dialog Sukses & Arahkan ke Pelacakan Pesanan
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -102,10 +194,7 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
             context,
             MaterialPageRoute(
               builder: (context) => HalamanStatusPesanan(
-                idPesanan: idPesanan,
-                namaBarang: namaBarangList.join(', '),
-                negaraAsal: negaraAsal,
-                totalHargaIdr: _totalBayar,
+                idPesananTerpilih: idPesanan,
               ),
             ),
           );
@@ -183,6 +272,69 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
                     ),
                   );
                 },
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Pilihan Cara Serah Terima Barang (Oleh Pemesan)
+            const Text(
+              'Cara Serah Terima Barang (Opsi Pemesan):',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Tentukan cara Anda mengambil pesanan. Traveler luar negeri akan menyesuaikan pilihan Anda.',
+              style: TextStyle(fontSize: 11.5, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.teal.shade200),
+              ),
+              child: Column(
+                children: [
+                  // ignore: deprecated_member_use
+                  RadioListTile<String>(
+                    activeColor: Colors.teal.shade800,
+                    value: 'COD_LBS',
+                    // ignore: deprecated_member_use
+                    groupValue: _metodePenyerahan,
+                    title: const Text('📍 Ambil Sendiri / Ketemuan COD (LBS Google Maps)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                    subtitle: const Text('Ketemuan di Hub Kampus UPN Condongcatur / Bandara YIA dengan petunjuk rute Google Maps.', style: TextStyle(fontSize: 10.5)),
+                    // ignore: deprecated_member_use
+                    onChanged: (val) => setState(() => _metodePenyerahan = val!),
+                  ),
+                  const Divider(height: 1),
+                  // ignore: deprecated_member_use
+                  RadioListTile<String>(
+                    activeColor: Colors.teal.shade800,
+                    value: 'KURIR_ANTAR',
+                    // ignore: deprecated_member_use
+                    groupValue: _metodePenyerahan,
+                    title: const Text('🚚 Diantar Kurir ke Rumah', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                    subtitle: const Text('Traveler mengirimkan paket titipan lewat JNE / SiCepat ke alamat rumah Anda.', style: TextStyle(fontSize: 10.5)),
+                    // ignore: deprecated_member_use
+                    onChanged: (val) => setState(() => _metodePenyerahan = val!),
+                  ),
+                  if (_metodePenyerahan == 'KURIR_ANTAR') ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: TextField(
+                        controller: _alamatController,
+                        maxLines: 2,
+                        decoration: InputDecoration(
+                          labelText: 'Alamat Rumah Tujuan Pengiriman',
+                          labelStyle: const TextStyle(fontSize: 12),
+                          prefixIcon: const Icon(Icons.home_outlined),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          contentPadding: const EdgeInsets.all(12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             const SizedBox(height: 24),
@@ -335,6 +487,130 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
             ],
             const SizedBox(height: 24),
 
+            // Kupon Diskon & Voucher Promo Jastip
+            const Text(
+              'Voucher & Diskon Promo Jastip:',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Gunakan voucher dari Shake Promo atau Mini Game untuk memotong total biaya titip.',
+              style: TextStyle(fontSize: 11.5, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.amber.shade400),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_voucherTerpilih != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.green.shade300),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.check_circle, color: Colors.green, size: 22),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _voucherTerpilih!.judul,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                                Text(
+                                  'Hemat ${LayananKonversi.formatRupiah(_voucherTerpilih!.potonganIdr)} (${_voucherTerpilih!.kode})',
+                                  style: TextStyle(fontSize: 11, color: Colors.green.shade900, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 18, color: Colors.black54),
+                            onPressed: () => setState(() => _voucherTerpilih = null),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (_daftarVoucherTersedia.isNotEmpty) ...[
+                    const Text(
+                      'Pilih Voucher yang Tersedia:',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Colors.black87),
+                    ),
+                    const SizedBox(height: 8),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: _daftarVoucherTersedia.map((v) {
+                          final isSelected = _voucherTerpilih?.kode == v.kode;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8.0),
+                            child: ActionChip(
+                              backgroundColor: isSelected ? Colors.amber.shade200 : Colors.amber.shade50,
+                              avatar: Icon(Icons.card_giftcard, size: 16, color: Colors.amber.shade900),
+                              label: Text(
+                                '${v.kode} (-${LayananKonversi.formatRupiah(v.potonganIdr)})',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                  color: Colors.amber.shade900,
+                                ),
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _voucherTerpilih = isSelected ? null : v;
+                                });
+                              },
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _kodePromoManualController,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: InputDecoration(
+                            hintText: 'Ketik kode promo (misal: SHAKE50)',
+                            hintStyle: const TextStyle(fontSize: 11.5),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.amber.shade800,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: _terapkanKodePromoManual,
+                        child: const Text('PAKAI', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
             // Ringkasan Pembayaran
             Container(
               padding: const EdgeInsets.all(18),
@@ -362,6 +638,16 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
                       Text(LayananKonversi.formatRupiah(_biayaJasaTitip), style: const TextStyle(fontWeight: FontWeight.bold)),
                     ],
                   ),
+                  if (_voucherTerpilih != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Potongan Diskon (${_voucherTerpilih!.kode}):', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                        Text('- ${LayananKonversi.formatRupiah(_potonganVoucher)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                      ],
+                    ),
+                  ],
                   const Divider(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,

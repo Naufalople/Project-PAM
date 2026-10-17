@@ -133,6 +133,32 @@ class LayananAi {
     return _basisPengetahuanVisual[indeksAman];
   }
 
+  // Fungsi Pindai Gambar dari Kamera atau Galeri Menggunakan Mesin Cerdas
+  static Future<HasilPemindaianAi> pindaiGambarKamera({
+    String? namaFileAtauPath,
+    int presetIndeks = 0,
+  }) async {
+    // Simulasi jeda waktu pemrosesan Computer Vision AI
+    await Future.delayed(const Duration(milliseconds: 1400));
+
+    if (namaFileAtauPath != null && namaFileAtauPath.isNotEmpty) {
+      final namaLower = namaFileAtauPath.toLowerCase();
+      for (var item in _basisPengetahuanVisual) {
+        if (namaLower.contains(item.namaProduk.toLowerCase()) ||
+            namaLower.contains(item.kategori.toLowerCase()) ||
+            namaLower.contains(item.negaraAsal.toLowerCase())) {
+          return item;
+        }
+      }
+      // Heuristik hash deterministik agar hasil kamera konsisten
+      final int hash = namaFileAtauPath.hashCode.abs() % _basisPengetahuanVisual.length;
+      return _basisPengetahuanVisual[hash];
+    }
+
+    final indeksAman = presetIndeks % _basisPengetahuanVisual.length;
+    return _basisPengetahuanVisual[indeksAman];
+  }
+
   // Buat objek ModelBarangJastip dari hasil pemindaian AI
   static ModelBarangJastip konversiKeBarangJastip(HasilPemindaianAi hasil, String fotoUrl) {
     String bendera = '🌏';

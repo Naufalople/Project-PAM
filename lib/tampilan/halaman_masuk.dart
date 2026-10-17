@@ -16,14 +16,25 @@ class HalamanMasuk extends StatefulWidget {
 
 class _HalamanMasukState extends State<HalamanMasuk> {
   final _formKunci = GlobalKey<FormState>();
-  final TextEditingController _emailController = TextEditingController(
-    text: 'budi@jastipgo.com',
-  );
-  final TextEditingController _passwordController = TextEditingController(
-    text: 'password123',
-  );
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
   bool _sedangMemuat = false;
   bool _sembunyikanPassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _muatEmailTerakhir();
+  }
+
+  Future<void> _muatEmailTerakhir() async {
+    final email = await LayananOtentikasi.ambilEmailTerakhir();
+    if (email != null && email.isNotEmpty && mounted) {
+      setState(() {
+        _emailController.text = email;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -65,15 +76,34 @@ class _HalamanMasukState extends State<HalamanMasuk> {
 
   // Fungsi Masuk Cepat dengan Sensor Sidik Jari / Biometrik
   Future<void> _masukDenganBiometrik() async {
+    // 1. Cek apakah pengguna sudah mendaftarkan sidik jari di menu Profil
+    final String? emailTerdaftar = await LayananBiometrik.ambilEmailBiometrikTerdaftar();
+    final String? namaTerdaftar = await LayananBiometrik.ambilNamaBiometrikTerdaftar();
+
+    if (!mounted) return;
+
+    if (emailTerdaftar == null) {
+      showDialog(
+        context: context,
+        builder: (context) => const DialogPeringatan(
+          judul: 'Biometrik Belum Didaftarkan',
+          deskripsi:
+              'Sensor sidik jari belum dihubungkan ke akun manapun.\n\nSilakan masuk terlebih dahulu menggunakan email dan password akun Anda, lalu aktifkan "Otentikasi Sidik Jari" di menu Profil.',
+        ),
+      );
+      return;
+    }
+
+    // 2. Jalankan sensor sidik jari
     final bool sukses = await LayananBiometrik.autentikasiSidikJari(
-      pesanAlasan: 'Pindai sidik jari Anda untuk masuk cepat ke JastipGo',
+      pesanAlasan: 'Pindai sidik jari Anda untuk masuk sebagai ${namaTerdaftar ?? emailTerdaftar}',
     );
 
     if (!mounted) return;
 
     if (sukses) {
       final pengguna = await LayananOtentikasi.masukDenganBiometrik(
-        email: _emailController.text.trim(),
+        email: emailTerdaftar,
       );
       if (!mounted) return;
       if (pengguna != null) {
@@ -81,13 +111,21 @@ class _HalamanMasukState extends State<HalamanMasuk> {
           context,
           MaterialPageRoute(builder: (context) => const HalamanUtama()),
         );
+      } else {
+        showDialog(
+          context: context,
+          builder: (context) => const DialogPeringatan(
+            judul: 'Akun Tidak Ditemukan',
+            deskripsi: 'Data akun yang terdaftar pada sidik jari tidak ditemukan di database.',
+          ),
+        );
       }
     } else {
       showDialog(
         context: context,
         builder: (context) => const DialogPeringatan(
           judul: 'Biometrik Gagal',
-          deskripsi: 'Otentikasi sidik jari tidak dikenali. Silakan gunakan password biasa.',
+          deskripsi: 'Otentikasi sidik jari tidak dikenali atau dibatalkan. Silakan gunakan password.',
         ),
       );
     }
@@ -284,7 +322,43 @@ class _HalamanMasukState extends State<HalamanMasuk> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
+
+                // Tombol Uji Coba Cepat Akun DB (Pemesan)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.teal.shade800,
+                            side: BorderSide(color: Colors.teal.shade200),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _emailController.text = 'pemesan@jastipgo.com';
+                              _passwordController.text = 'password123';
+                            });
+                          },
+                          icon: const Icon(Icons.flash_on_rounded, size: 16, color: Colors.amber),
+                          label: const Text(
+                            'Gunakan Akun Uji Coba (pemesan@jastipgo.com)',
+                            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
 
                 // Link ke Halaman Registrasi
                 Row(

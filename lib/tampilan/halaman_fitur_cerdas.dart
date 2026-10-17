@@ -170,11 +170,15 @@ class HalamanFiturCerdas extends StatelessWidget {
                             children: [
                               Row(
                                 children: [
-                                  Text(
-                                    item['judul'],
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                  Expanded(
+                                    child: Text(
+                                      item['judul'],
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5),
+                                    ),
                                   ),
-                                  const SizedBox(width: 8),
+                                  const SizedBox(width: 6),
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                     decoration: BoxDecoration(

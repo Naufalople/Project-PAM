@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../layanan/layanan_otentikasi.dart';
 import '../widget/dialog_sukses.dart';
 import '../widget/dialog_peringatan.dart';
+import 'halaman_utama.dart';
 
 // Halaman Pendaftaran Akun Baru (Registrasi)
 class HalamanDaftar extends StatefulWidget {
@@ -51,11 +52,14 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
 
     setState(() => _sedangMemuat = true);
 
+    // Pendaftaran akun khusus untuk Pemesan (karena pembeli di LN cukup 1 orang tetap)
     final bool berhasil = await LayananOtentikasi.daftarkanPenggunaBaru(
       nama: _namaController.text.trim(),
       email: _emailController.text.trim(),
       password: _passwordController.text,
       nomorTelepon: _teleponController.text.trim(),
+      peran: 'PEMESAN',
+      lokasi: 'Indonesia 🇮🇩',
     );
 
     setState(() => _sedangMemuat = false);
@@ -65,14 +69,16 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
     if (berhasil) {
       showDialog(
         context: context,
+        barrierDismissible: false,
         builder: (context) => DialogSukses(
-          judul: 'Registrasi Berhasil',
-          deskripsi: 'Akun Anda berhasil dibuat dengan enkripsi SHA-256. Silakan masuk menggunakan akun baru Anda.',
+          judul: 'Registrasi Berhasil! 🎉',
+          deskripsi: 'Selamat datang, ${_namaController.text.trim()}!\n\nData akun Anda:\n• Nama: ${_namaController.text.trim()}\n• WhatsApp: ${_teleponController.text.trim()}\n• Email: ${_emailController.text.trim()}\n\nAkun Anda telah dienkripsi dengan SHA-256 dan langsung aktif.',
           saatKlikOke: () {
-            Navigator.pop(
+            Navigator.pushAndRemoveUntil(
               context,
-              _emailController.text.trim(),
-            ); // Kembali ke login dengan membawa email baru
+              MaterialPageRoute(builder: (context) => const HalamanUtama()),
+              (route) => false,
+            );
           },
         ),
       );
@@ -104,7 +110,7 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Buat Akun Traveler / Jastiper',
+                'Daftar Akun Pemesan (Jastiper)',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
@@ -113,7 +119,7 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Nikmati kemudahan menitip barang impian dari seluruh penjuru dunia.',
+                'Daftarkan akun Anda untuk menitip barang belanjaan impian dari luar negeri dengan aman dan terverifikasi.',
                 style: TextStyle(fontSize: 13, color: Colors.black54),
               ),
               const SizedBox(height: 24),
@@ -135,7 +141,36 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
                 child: Form(
                   key: _formKunci,
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Badge Keterangan Peran Akun
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.teal.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.person_pin_rounded, size: 20, color: Colors.teal.shade800),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Peran Akun: Pemesan Barang (Jastiper Indonesia)',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.teal.shade900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
                       // Nama Lengkap
                       TextFormField(
                         controller: _namaController,

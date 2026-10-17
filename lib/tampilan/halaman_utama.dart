@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import '../layanan/layanan_basisdata_lokal.dart';
 import 'halaman_beranda.dart';
 import 'halaman_keranjang.dart';
 import 'halaman_fitur_cerdas.dart';
@@ -68,23 +70,41 @@ class _HalamanUtamaState extends State<HalamanUtama> {
           selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
           unselectedLabelStyle: const TextStyle(fontSize: 11),
           elevation: 0,
-          items: const [
-            BottomNavigationBarItem(
+          items: [
+            const BottomNavigationBarItem(
               icon: Icon(Icons.home_outlined),
               activeIcon: Icon(Icons.home_rounded),
               label: 'Beranda',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.shopping_bag_outlined),
-              activeIcon: Icon(Icons.shopping_bag_rounded),
+              icon: ValueListenableBuilder<Box>(
+                valueListenable: Hive.box(LayananBasisDataLokal.namaKotakKeranjang).listenable(),
+                builder: (context, box, child) {
+                  return Badge(
+                    isLabelVisible: box.isNotEmpty,
+                    label: Text('${box.length}'),
+                    child: const Icon(Icons.shopping_bag_outlined),
+                  );
+                },
+              ),
+              activeIcon: ValueListenableBuilder<Box>(
+                valueListenable: Hive.box(LayananBasisDataLokal.namaKotakKeranjang).listenable(),
+                builder: (context, box, child) {
+                  return Badge(
+                    isLabelVisible: box.isNotEmpty,
+                    label: Text('${box.length}'),
+                    child: const Icon(Icons.shopping_bag_rounded),
+                  );
+                },
+              ),
               label: 'Keranjang',
             ),
-            BottomNavigationBarItem(
+            const BottomNavigationBarItem(
               icon: Icon(Icons.auto_awesome_outlined),
               activeIcon: Icon(Icons.auto_awesome),
               label: 'Fitur Cerdas',
             ),
-            BottomNavigationBarItem(
+            const BottomNavigationBarItem(
               icon: Icon(Icons.person_outline),
               activeIcon: Icon(Icons.person),
               label: 'Profil',

@@ -1,8 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../layanan/layanan_ai.dart';
 import '../layanan/layanan_api.dart';
+import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_konversi.dart';
 import '../layanan/layanan_notifikasi.dart';
+import '../model/model_keranjang.dart';
 
 // Halaman Pemindai Foto AI (Ala Google Lens) untuk Identifikasi Barang Titipan
 class HalamanPemindaiAi extends StatefulWidget {
@@ -16,6 +20,8 @@ class _HalamanPemindaiAiState extends State<HalamanPemindaiAi> {
   bool _sedangMemindai = false;
   HasilPemindaianAi? _hasilPemindaian;
   int _presetPilihan = 0;
+  XFile? _fileFoto;
+  final ImagePicker _picker = ImagePicker();
 
   // Daftar sampel foto barang mancanegara untuk simulasi pemindaian AI
   final List<Map<String, String>> _sampelFoto = [
@@ -53,13 +59,70 @@ class _HalamanPemindaiAiState extends State<HalamanPemindaiAi> {
     },
   ];
 
+  Future<void> _ambilFotoDariKamera() async {
+    try {
+      final XFile? foto = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+        maxWidth: 1200,
+      );
+      if (foto != null) {
+        setState(() {
+          _fileFoto = foto;
+          _hasilPemindaian = null;
+        });
+        await _jalankanPemindaian();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Kamera tidak dapat diakses: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  Future<void> _pilihFotoDariGaleri() async {
+    try {
+      final XFile? foto = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+        maxWidth: 1200,
+      );
+      if (foto != null) {
+        setState(() {
+          _fileFoto = foto;
+          _hasilPemindaian = null;
+        });
+        await _jalankanPemindaian();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Galeri tidak dapat diakses: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
   Future<void> _jalankanPemindaian() async {
     setState(() {
       _sedangMemindai = true;
       _hasilPemindaian = null;
     });
 
-    final hasil = await LayananAi.pindaiGambarProduk(presetIndeks: _presetPilihan);
+    final HasilPemindaianAi hasil;
+    if (_fileFoto != null) {
+      hasil = await LayananAi.pindaiGambarKamera(
+        namaFileAtauPath: _fileFoto!.name,
+      );
+    } else {
+      hasil = await LayananAi.pindaiGambarProduk(presetIndeks: _presetPilihan);
+    }
 
     if (!mounted) return;
 
@@ -77,13 +140,55 @@ class _HalamanPemindaiAiState extends State<HalamanPemindaiAi> {
     );
   }
 
+  // Tambah hasil AI langsung ke keranjang belanja
+  Future<void> _tambahLangsungKeKeranjang() async {
+    if (_hasilPemindaian == null) return;
+
+    final String foto = _fileFoto != null
+        ? _fileFoto!.path
+        : _sampelFoto[_presetPilihan]['fotoUrl']!;
+
+    final item = ModelKeranjang(
+      idBarang: DateTime.now().millisecondsSinceEpoch % 100000,
+      namaBarang: _hasilPemindaian!.namaProduk,
+      fotoUrl: foto,
+      negara: _hasilPemindaian!.negaraAsal,
+      kodeMataUang: _hasilPemindaian!.kodeMataUang,
+      hargaAsli: _hasilPemindaian!.estimasiHargaAsli,
+      hargaIdr: _hasilPemindaian!.estimasiHargaIdr,
+      jumlah: 1,
+    );
+
+    await LayananBasisDataLokal.tambahKeKeranjang(item);
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('✅ ${_hasilPemindaian!.namaProduk} berhasil dimasukkan ke Keranjang!'),
+        backgroundColor: Colors.teal.shade800,
+        action: SnackBarAction(
+          label: 'LIHAT KERANJANG',
+          textColor: Colors.amberAccent,
+          onPressed: () {
+            Navigator.pop(context); // Kembali ke halaman utama / keranjang
+          },
+        ),
+      ),
+    );
+  }
+
   // Tambah hasil AI langsung ke katalog request jastip
   Future<void> _simpanKeKatalogJastip() async {
     if (_hasilPemindaian == null) return;
 
+    final String foto = _fileFoto != null
+        ? 'https://images.unsplash.com/photo-1579954115545-a95591f28bfc?w=500'
+        : _sampelFoto[_presetPilihan]['fotoUrl']!;
+
     final barang = LayananAi.konversiKeBarangJastip(
       _hasilPemindaian!,
-      _sampelFoto[_presetPilihan]['fotoUrl']!,
+      foto,
     );
 
     await LayananApi.tambahBarangJastip(barang);
@@ -157,17 +262,29 @@ class _HalamanPemindaiAiState extends State<HalamanPemindaiAi> {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(20),
-                    child: Image.network(
-                      fotoTerpilih,
-                      width: double.infinity,
-                      height: 250,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => const Icon(
-                        Icons.image_outlined,
-                        size: 64,
-                        color: Colors.white54,
-                      ),
-                    ),
+                    child: _fileFoto != null
+                        ? Image.file(
+                            File(_fileFoto!.path),
+                            width: double.infinity,
+                            height: 250,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => const Icon(
+                              Icons.broken_image,
+                              size: 64,
+                              color: Colors.white54,
+                            ),
+                          )
+                        : Image.network(
+                            fotoTerpilih,
+                            width: double.infinity,
+                            height: 250,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => const Icon(
+                              Icons.image_outlined,
+                              size: 64,
+                              color: Colors.white54,
+                            ),
+                          ),
                   ),
 
                   // Overlay Bidikan Scanner ala Google Lens
@@ -204,9 +321,43 @@ class _HalamanPemindaiAiState extends State<HalamanPemindaiAi> {
             ),
             const SizedBox(height: 16),
 
-            // Pemilihan Sampel Foto Barang
+            // Tombol Akses Kamera & Galeri HP
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.purple.shade700,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: _sedangMemindai ? null : _ambilFotoDariKamera,
+                    icon: const Icon(Icons.camera_alt_rounded),
+                    label: const Text('Buka Kamera HP', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.purple.shade800,
+                      side: BorderSide(color: Colors.purple.shade400, width: 1.5),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: _sedangMemindai ? null : _pilihFotoDariGaleri,
+                    icon: const Icon(Icons.photo_library_rounded),
+                    label: const Text('Pilih dari Galeri', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Pemilihan Sampel Foto Barang Alternatif
             const Text(
-              'Pilih Objek Foto untuk Dipindai:',
+              'Atau Pilih Sampel Foto Katalog:',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
             ),
             const SizedBox(height: 8),
@@ -215,7 +366,7 @@ class _HalamanPemindaiAiState extends State<HalamanPemindaiAi> {
               child: Row(
                 children: List.generate(_sampelFoto.length, (index) {
                   final item = _sampelFoto[index];
-                  final bool terpilih = _presetPilihan == index;
+                  final bool terpilih = _fileFoto == null && _presetPilihan == index;
                   return Padding(
                     padding: const EdgeInsets.only(right: 8.0),
                     child: ChoiceChip(
@@ -229,6 +380,7 @@ class _HalamanPemindaiAiState extends State<HalamanPemindaiAi> {
                       ),
                       onSelected: (val) {
                         setState(() {
+                          _fileFoto = null;
                           _presetPilihan = index;
                           _hasilPemindaian = null;
                         });
@@ -243,7 +395,7 @@ class _HalamanPemindaiAiState extends State<HalamanPemindaiAi> {
             // Tombol Mulai Scan AI
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.purple.shade700,
+                backgroundColor: Colors.indigo.shade700,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -350,6 +502,21 @@ class _HalamanPemindaiAiState extends State<HalamanPemindaiAi> {
                       style: const TextStyle(fontSize: 12, color: Colors.black87, height: 1.4),
                     ),
                     const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: _tambahLangsungKeKeranjang,
+                        icon: const Icon(Icons.add_shopping_cart_rounded),
+                        label: const Text('Masukkan Langsung ke Keranjang', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(

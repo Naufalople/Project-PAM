@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../model/model_pengguna.dart';
 import '../layanan/layanan_otentikasi.dart';
+import '../layanan/layanan_biometrik.dart';
 import 'halaman_masuk.dart';
 import 'halaman_saran_kesan.dart';
 import 'halaman_sertifikat_blockchain.dart';
@@ -17,6 +18,7 @@ class HalamanProfil extends StatefulWidget {
 
 class _HalamanProfilState extends State<HalamanProfil> {
   ModelPengguna? _profilPengguna;
+  bool _biometrikAktif = false;
 
   @override
   void initState() {
@@ -26,7 +28,65 @@ class _HalamanProfilState extends State<HalamanProfil> {
 
   Future<void> _muatProfil() async {
     final profil = await LayananOtentikasi.ambilProfilAktif();
-    setState(() => _profilPengguna = profil);
+    bool biometrikAktif = false;
+    if (profil != null) {
+      biometrikAktif = await LayananBiometrik.apakahBiometrikAktifUntukAkun(profil.email);
+    }
+    if (!mounted) return;
+    setState(() {
+      _profilPengguna = profil;
+      _biometrikAktif = biometrikAktif;
+    });
+  }
+
+  // Fungsi Mengubah Status Pendaftaran Sidik Jari untuk Akun Ini
+  Future<void> _ubahStatusBiometrik(bool aktifkan) async {
+    if (_profilPengguna == null) return;
+
+    if (aktifkan) {
+      final bool sukses = await LayananBiometrik.autentikasiSidikJari(
+        pesanAlasan: 'Pindai sidik jari Anda untuk mengaktifkan login biometrik pada akun ini',
+      );
+      if (!mounted) return;
+
+      if (sukses) {
+        await LayananBiometrik.daftarkanBiometrikAkun(
+          email: _profilPengguna!.email,
+          nama: _profilPengguna!.nama,
+        );
+        if (!mounted) return;
+        setState(() => _biometrikAktif = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '✅ Sidik jari berhasil dihubungkan ke akun ${_profilPengguna!.nama}! Sekarang Anda dapat masuk cepat dengan sidik jari.',
+            ),
+            backgroundColor: Colors.teal.shade800,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verifikasi sidik jari dibatalkan atau tidak cocok.'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } else {
+      await LayananBiometrik.nonaktifkanBiometrik();
+      setState(() => _biometrikAktif = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Login biometrik dinonaktifkan untuk akun ini.'),
+          backgroundColor: Colors.blueGrey,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   // Fungsi Keluar Sesi Akun (Logout)
@@ -41,11 +101,73 @@ class _HalamanProfilState extends State<HalamanProfil> {
     );
   }
 
+  Future<void> _dialogEditProfil() async {
+    final namaCtrl = TextEditingController(text: _profilPengguna?.nama ?? '');
+    final telpCtrl = TextEditingController(text: _profilPengguna?.nomorTelepon ?? '');
+
+    await showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Edit Data Profil', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: namaCtrl,
+              decoration: InputDecoration(
+                labelText: 'Nama Lengkap',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: telpCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: 'Nomor WhatsApp',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('BATAL'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.teal.shade700,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () async {
+              if (namaCtrl.text.trim().isNotEmpty && telpCtrl.text.trim().isNotEmpty) {
+                await LayananOtentikasi.perbaruiProfilAktif(
+                  nama: namaCtrl.text.trim(),
+                  nomorTelepon: telpCtrl.text.trim(),
+                );
+                if (dialogCtx.mounted) {
+                  Navigator.pop(dialogCtx);
+                }
+                if (mounted) {
+                  _muatProfil();
+                }
+              }
+            },
+            child: const Text('SIMPAN'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final String nama = _profilPengguna?.nama ?? 'Budi Santoso';
-    final String email = _profilPengguna?.email ?? 'budi@jastipgo.com';
-    final String telepon = _profilPengguna?.nomorTelepon ?? '081234567890';
+    final String nama = _profilPengguna?.nama ?? 'Pengguna JastipGo';
+    final String email = _profilPengguna?.email ?? 'pengguna@jastipgo.com';
+    final String telepon = _profilPengguna?.nomorTelepon ?? '-';
     final String fotoUrl = _profilPengguna?.fotoProfil ??
         'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400';
 
@@ -56,6 +178,13 @@ class _HalamanProfilState extends State<HalamanProfil> {
         backgroundColor: Colors.teal.shade800,
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'Ubah Data Profil',
+            icon: const Icon(Icons.edit_note_rounded),
+            onPressed: _dialogEditProfil,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
@@ -103,16 +232,43 @@ class _HalamanProfilState extends State<HalamanProfil> {
                     style: const TextStyle(fontSize: 13, color: Colors.black54),
                   ),
                   const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.teal.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '📱 WhatsApp: $telepon',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.teal.shade900),
-                    ),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '📱 WhatsApp: $telepon',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.teal.shade900),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _profilPengguna?.peran == 'TRAVELER' ? Colors.indigo.shade50 : Colors.amber.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _profilPengguna?.peran == 'TRAVELER' ? Colors.indigo.shade200 : Colors.amber.shade300,
+                          ),
+                        ),
+                        child: Text(
+                          _profilPengguna?.peran == 'TRAVELER'
+                              ? '✈️ Pembeli (Traveler) • ${_profilPengguna?.lokasi ?? "Tokyo 🇯🇵"}'
+                              : '👤 Pemesan • ${_profilPengguna?.lokasi ?? "Indonesia 🇮🇩"}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: _profilPengguna?.peran == 'TRAVELER' ? Colors.indigo.shade900 : Colors.amber.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -188,6 +344,36 @@ class _HalamanProfilState extends State<HalamanProfil> {
                         MaterialPageRoute(builder: (context) => const HalamanPetaLokasi()),
                       );
                     },
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    secondary: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _biometrikAktif ? Colors.teal.shade50 : Colors.grey.shade100,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.fingerprint,
+                        color: _biometrikAktif ? Colors.teal.shade800 : Colors.grey.shade600,
+                      ),
+                    ),
+                    title: const Text(
+                      'Otentikasi Sidik Jari (Biometrik)',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                    subtitle: Text(
+                      _biometrikAktif
+                          ? 'Aktif • Sidik jari terhubung ke akun ${_profilPengguna?.nama ?? ""}'
+                          : 'Nonaktif • Ketuk sakelar untuk mendaftarkan sidik jari',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: _biometrikAktif ? Colors.teal.shade700 : Colors.black54,
+                      ),
+                    ),
+                    value: _biometrikAktif,
+                    activeTrackColor: Colors.teal.shade300,
+                    onChanged: (val) => _ubahStatusBiometrik(val),
                   ),
                   const Divider(height: 1),
                   ListTile(

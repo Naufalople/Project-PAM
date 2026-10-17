@@ -1,4 +1,4 @@
-// Model data untuk Pengguna / Traveler
+// Model data untuk Pengguna: Pemesan (Indonesia) atau Pembeli / Traveler (Luar Negeri)
 class ModelPengguna {
   final int id;
   final String nama;
@@ -6,6 +6,8 @@ class ModelPengguna {
   final String passwordHash;
   final String nomorTelepon;
   final String fotoProfil;
+  final String peran; // 'PEMESAN' atau 'TRAVELER'
+  final String lokasi; // Misal: 'Yogyakarta, Indonesia 🇮🇩' atau 'Ginza, Tokyo 🇯🇵'
 
   ModelPengguna({
     required this.id,
@@ -14,6 +16,8 @@ class ModelPengguna {
     required this.passwordHash,
     required this.nomorTelepon,
     required this.fotoProfil,
+    this.peran = 'PEMESAN',
+    this.lokasi = 'Indonesia 🇮🇩',
   });
 
   // Konversi dari JSON ke Objek Pengguna
@@ -24,7 +28,9 @@ class ModelPengguna {
       email: json['email'] ?? '',
       passwordHash: json['passwordHash'] ?? '',
       nomorTelepon: json['nomorTelepon'] ?? '',
-      fotoProfil: json['fotoProfil'] ?? '',
+      fotoProfil: json['fotoProfil'] ?? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400',
+      peran: json['peran'] ?? 'PEMESAN',
+      lokasi: json['lokasi'] ?? 'Indonesia 🇮🇩',
     );
   }
 
@@ -37,6 +43,8 @@ class ModelPengguna {
       'passwordHash': passwordHash,
       'nomorTelepon': nomorTelepon,
       'fotoProfil': fotoProfil,
+      'peran': peran,
+      'lokasi': lokasi,
     };
   }
 }

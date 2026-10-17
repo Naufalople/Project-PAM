@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../layanan/layanan_basisdata_lokal.dart';
+import '../layanan/layanan_konversi.dart';
 import '../layanan/layanan_notifikasi.dart';
 
 // Halaman Mini Game Sederhana: "Tebak Harga Koper Jastip"
@@ -13,6 +15,7 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
   int _skor = 0;
   int _nomorSoal = 0;
   bool _kuisSelesai = false;
+  ModelVoucher? _voucherHadiah;
 
   final List<Map<String, dynamic>> _daftarSoal = [
     {
@@ -45,11 +48,13 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
     },
   ];
 
-  void _jawabPertanyaan(int indeksPilihan) {
+  Future<void> _jawabPertanyaan(int indeksPilihan) async {
     final bool benar = indeksPilihan == _daftarSoal[_nomorSoal]['jawabanBenar'];
 
+    int skorBaru = _skor;
     if (benar) {
-      setState(() => _skor += 25);
+      skorBaru += 25;
+      setState(() => _skor = skorBaru);
       LayananNotifikasi.kirimNotifikasi(
         context,
         judul: 'Jawaban Benar! 🎯',
@@ -69,7 +74,29 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
     if (_nomorSoal < _daftarSoal.length - 1) {
       setState(() => _nomorSoal++);
     } else {
-      setState(() => _kuisSelesai = true);
+      ModelVoucher? hadiah;
+      if (skorBaru >= 50) {
+        hadiah = ModelVoucher(
+          kode: 'KUIS50',
+          judul: 'Voucher Juara Kuis Rp 50.000',
+          potonganIdr: 50000,
+          deskripsi: 'Hadiah keberhasilan kuis wawasan koper jastip.',
+        );
+        await LayananBasisDataLokal.simpanVoucher(hadiah);
+        if (!mounted) return;
+        LayananNotifikasi.kirimNotifikasi(
+          context,
+          judul: 'Selamat! Voucher Hadiah Diberikan! 🏆',
+          pesan: 'Anda memenangkan Voucher KUIS50 (Potongan Rp 50.000) dan tersimpan di akun Anda!',
+          ikon: Icons.card_giftcard,
+          warna: Colors.indigo.shade800,
+        );
+      }
+
+      setState(() {
+        _voucherHadiah = hadiah;
+        _kuisSelesai = true;
+      });
     }
   }
 
@@ -78,6 +105,7 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
       _skor = 0;
       _nomorSoal = 0;
       _kuisSelesai = false;
+      _voucherHadiah = null;
     });
   }
 
@@ -136,6 +164,43 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontSize: 13, color: Colors.black54),
                         ),
+                        if (_voucherHadiah != null) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade50,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.amber.shade400),
+                            ),
+                            child: Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.card_giftcard, color: Colors.amber.shade900, size: 20),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _voucherHadiah!.judul,
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.amber.shade900),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'KODE: ${_voucherHadiah!.kode} • POTONGAN ${LayananKonversi.formatRupiah(_voucherHadiah!.potonganIdr)}',
+                                  style: TextStyle(fontWeight: FontWeight.w900, color: Colors.indigo.shade900, fontSize: 12),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  '✅ Kupon sudah tersimpan dan otomatis bisa dipilih saat Anda memesan barang!',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 10.5, color: Colors.black54),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 24),
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(

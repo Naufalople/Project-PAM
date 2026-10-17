@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import '../layanan/layanan_basisdata_lokal.dart';
+import '../layanan/layanan_konversi.dart';
 import '../layanan/layanan_sensor.dart';
 import '../layanan/layanan_notifikasi.dart';
 
@@ -16,15 +18,34 @@ class HalamanShakePromo extends StatefulWidget {
 class _HalamanShakePromoState extends State<HalamanShakePromo> with SingleTickerProviderStateMixin {
   StreamSubscription<AccelerometerEvent>? _langgananAkselerometer;
   late AnimationController _animasiKotak;
-  String? _voucherDidapat;
+  ModelVoucher? _voucherDidapat;
   int _jumlahGoyangan = 0;
 
-  final List<String> _daftarVoucher = [
-    '🎉 Diskon Ongkos Titip 50% untuk Pengiriman Jepang',
-    '🎁 Potongan Rp 100.000 untuk Pembelian di Harrods London',
-    '✨ Gratis Kemasan Box & Bubble Wrap Premium Internasional',
-    '✈️ Voucher Cashback Rp 50.000 untuk Jastip Skincare Korea',
-    '🔥 Diskon Kilat 30% Tanpa Minimum Belanja',
+  final List<ModelVoucher> _daftarVoucher = [
+    ModelVoucher(
+      kode: 'SHAKE50',
+      judul: 'Diskon Shake Rp 50.000',
+      potonganIdr: 50000,
+      deskripsi: 'Potongan Rp 50.000 hasil guncangan hoki Shake Promo!',
+    ),
+    ModelVoucher(
+      kode: 'HARRODS100',
+      judul: 'Voucher Sultan Rp 100.000',
+      potonganIdr: 100000,
+      deskripsi: 'Potongan Rp 100.000 untuk belanjaan jastip mancanegara!',
+    ),
+    ModelVoucher(
+      kode: 'SKINCARE35',
+      judul: 'Diskon Skincare Rp 35.000',
+      potonganIdr: 35000,
+      deskripsi: 'Potongan Rp 35.000 untuk titipan produk perawatan & kuliner!',
+    ),
+    ModelVoucher(
+      kode: 'POJASTIP75',
+      judul: 'Super Cashback Rp 75.000',
+      potonganIdr: 75000,
+      deskripsi: 'Potongan langsung Rp 75.000 saat checkout pesanan!',
+    ),
   ];
 
   @override
@@ -54,10 +75,15 @@ class _HalamanShakePromoState extends State<HalamanShakePromo> with SingleTicker
     );
   }
 
-  void _picuHadiahPromo() {
+  Future<void> _picuHadiahPromo() async {
     _animasiKotak.forward(from: 0.0);
     final random = Random();
     final voucherTerpilih = _daftarVoucher[random.nextInt(_daftarVoucher.length)];
+
+    // Simpan voucher ke Hive agar otomatis muncul di pilihan checkout & bisa dipakai
+    await LayananBasisDataLokal.simpanVoucher(voucherTerpilih);
+
+    if (!mounted) return;
 
     setState(() {
       _jumlahGoyangan++;
@@ -66,8 +92,8 @@ class _HalamanShakePromoState extends State<HalamanShakePromo> with SingleTicker
 
     LayananNotifikasi.kirimNotifikasi(
       context,
-      judul: 'Voucher Promo Berhasil Diklaim!',
-      pesan: voucherTerpilih,
+      judul: 'Voucher Promo Berhasil Diklaim! 🎁',
+      pesan: '${voucherTerpilih.judul} (${voucherTerpilih.kode}) tersimpan! Bisa dipakai saat checkout.',
       ikon: Icons.card_giftcard,
       warna: Colors.amber.shade900,
     );
@@ -180,7 +206,7 @@ class _HalamanShakePromoState extends State<HalamanShakePromo> with SingleTicker
                   child: Column(
                     children: [
                       const Text(
-                        'KUPON DISKON ANDA:',
+                        'KUPON DISKON ANDA (BERHASIL TERSIMPAN):',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
@@ -190,13 +216,41 @@ class _HalamanShakePromoState extends State<HalamanShakePromo> with SingleTicker
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _voucherDidapat!,
+                        _voucherDidapat!.judul,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: Colors.amber.shade900,
                         ),
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'KODE: ${_voucherDidapat!.kode} • HEMAT ${LayananKonversi.formatRupiah(_voucherDidapat!.potonganIdr)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.amber.shade900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _voucherDidapat!.deskripsi,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 11.5, color: Colors.black54),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '✅ Kupon otomatis tersimpan di Akun Anda dan siap dipakai saat checkout!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),

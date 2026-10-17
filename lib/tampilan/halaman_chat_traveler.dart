@@ -1,19 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../model/model_barang_jastip.dart';
 import '../model/model_pesan_chat.dart';
 import '../layanan/layanan_notifikasi.dart';
+import '../layanan/layanan_otentikasi.dart';
 
-// Halaman Ruang Obrolan (Live Chat) Langsung Antara Pembeli dan Penyedia Jasa (Traveler)
+// Halaman Ruang Obrolan Langsung (Direct Human Chat) Antara Pemesan dan Traveler
+// Mendukung simulasi dua arah nyata (tanpa auto-bot) serta tautan WhatsApp langsung.
 class HalamanChatTraveler extends StatefulWidget {
   final ModelBarangJastip? barang;
   final String namaTraveler;
   final String lokasiTraveler;
+  final String nomorWaTraveler;
 
   const HalamanChatTraveler({
     super.key,
     this.barang,
-    this.namaTraveler = 'Dimas Pratama (Traveler Terverifikasi)',
+    this.namaTraveler = 'Dimas Pratama (Traveler Luar Negeri)',
     this.lokasiTraveler = 'Sedang di Ginza, Tokyo 🇯🇵',
+    this.nomorWaTraveler = '6281234567890',
   });
 
   @override
@@ -23,45 +28,55 @@ class HalamanChatTraveler extends StatefulWidget {
 class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
   final TextEditingController _pesanController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  bool _sedangMengetik = false;
 
+  String _namaPemesan = 'Pemesan';
   late List<ModelPesanChat> _daftarObrolan;
 
-  final List<String> _pesanCepat = [
-    'Kak, slot koper masih muat?',
-    'Minta tolong fotoin struk aslinya ya',
-    'Bisa cari warna/ukuran lain?',
-    'Kira-kira kapan mendarat di Indonesia?',
+  final List<String> _templatePesanPemesan = [
+    'Kak Dimas, slot koper masih muat untuk barang ini?',
+    'Minta tolong fotoin struk resmi tokonya ya kak',
+    'Kira-kira kapan jadwal mendarat di bandara Indonesia?',
+    'Bisa tolong carikan varian rasa/warna lainnya?',
   ];
 
   @override
   void initState() {
     super.initState();
-    final String namaBarang = widget.barang?.namaBarang ?? 'barang titipan';
-    final String negara = widget.barang?.negara ?? 'luar negeri';
+    _muatProfilPemesan();
+
+    final String namaBarang = widget.barang?.namaBarang ?? 'Tokyo Banana Tokyo Station Edition';
+    final String negara = widget.barang?.negara ?? 'Jepang';
 
     _daftarObrolan = [
       ModelPesanChat(
         id: '1',
         teks: 'Halo! Saya ${widget.namaTraveler}. Saat ini saya ${widget.lokasiTraveler}. Ada yang ingin dititipkan dari $negara?',
         adalahPengguna: false,
-        waktu: DateTime.now().subtract(const Duration(minutes: 5)),
+        waktu: DateTime.now().subtract(const Duration(minutes: 15)),
       ),
-      if (widget.barang != null)
-        ModelPesanChat(
-          id: '2',
-          teks: 'Halo kak, saya tertarik untuk menitip "$namaBarang". Apakah barang ini masih tersedia di toko sana?',
-          adalahPengguna: true,
-          waktu: DateTime.now().subtract(const Duration(minutes: 3)),
-        ),
-      if (widget.barang != null)
-        ModelPesanChat(
-          id: '3',
-          teks: 'Tersedia kak! Tadi saya cek di toko ${widget.barang!.namaToko} stoknya masih aman. Nanti struk pembelian resminya akan saya catat ke sertifikat Blockchain ya 👍',
-          adalahPengguna: false,
-          waktu: DateTime.now().subtract(const Duration(minutes: 2)),
-        ),
+      ModelPesanChat(
+        id: '2',
+        teks: 'Halo kak Dimas, saya mau titip "$namaBarang". Apakah barang ini masih tersedia di toko resmi sana?',
+        adalahPengguna: true,
+        waktu: DateTime.now().subtract(const Duration(minutes: 12)),
+      ),
+      ModelPesanChat(
+        id: '3',
+        teks: 'Tersedia kak! Tadi saya cek di toko fisiknya stoknya masih ada. Nanti struk pembelian aslinya akan saya verifikasi ke sistem Blockchain JastipGo ya 👍',
+        adalahPengguna: false,
+        waktu: DateTime.now().subtract(const Duration(minutes: 10)),
+      ),
     ];
+  }
+
+  Future<void> _muatProfilPemesan() async {
+    final profil = await LayananOtentikasi.ambilProfilAktif();
+    if (!mounted) return;
+    if (profil != null) {
+      setState(() {
+        _namaPemesan = profil.nama;
+      });
+    }
   }
 
   @override
@@ -83,65 +98,101 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
     });
   }
 
-  // Kirim Pesan ke Traveler
-  Future<void> _kirimPesan(String teks) async {
+  // Kirim Pesan Langsung dari Pemesan ke Traveler (Dimas Pratama)
+  void _kirimPesanLangsung(String teks) {
     if (teks.trim().isEmpty) return;
 
+    final String pesanBersih = teks.trim();
     _pesanController.clear();
 
-    final pesanUser = ModelPesanChat(
+    final pesanBaru = ModelPesanChat(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      teks: teks,
+      teks: pesanBersih,
       adalahPengguna: true,
       waktu: DateTime.now(),
     );
 
     setState(() {
-      _daftarObrolan.add(pesanUser);
-      _sedangMengetik = true;
+      _daftarObrolan.add(pesanBaru);
     });
 
     _gulirKeBawah();
 
-    // Simulasi Balasan Cerdas dari Traveler
-    await Future.delayed(const Duration(milliseconds: 1200));
-
-    if (!mounted) return;
-
-    String balasanTraveler = 'Siap kak, segera saya proses dan fotokan barangnya langsung dari toko ya!';
-    final q = teks.toLowerCase();
-
-    if (q.contains('slot') || q.contains('koper') || q.contains('bagasi')) {
-      balasanTraveler = 'Masih ada sisa 8 kg slot koper untuk penerbangan besok lusa kak, silakan langsung checkout di aplikasi ya!';
-    } else if (q.contains('struk') || q.contains('asli') || q.contains('kw') || q.contains('ori')) {
-      balasanTraveler = 'Semua barang dibeli langsung di official store kak. Struk fisik dan bukti keaslian otomatis tercatat di rantai Blockchain JastipGo.';
-    } else if (q.contains('kapan') || q.contains('mendarat') || q.contains('sampai')) {
-      balasanTraveler = 'Jadwal landing di Bandara YIA / Soekarno Hatta tanggal 8 lusa kak. Pengiriman ke rumah kakak langsung diproses hari itu juga.';
-    } else if (q.contains('nego') || q.contains('ongkos') || q.contains('diskon')) {
-      balasanTraveler = 'Bisa kak! Kakak bisa goyangkan HP di menu "Shake & Win Promo" untuk dapat kupon diskon ongkos titip hingga 50%!';
-    }
-
-    final pesanBalasan = ModelPesanChat(
-      id: (DateTime.now().millisecondsSinceEpoch + 1).toString(),
-      teks: balasanTraveler,
-      adalahPengguna: false,
-      waktu: DateTime.now(),
-    );
-
-    setState(() {
-      _daftarObrolan.add(pesanBalasan);
-      _sedangMengetik = false;
-    });
-
-    _gulirKeBawah();
-
-    // Notifikasi Mobile
+    // Notifikasi Pesan Terkirim dari Pemesan
     LayananNotifikasi.kirimNotifikasi(
       context,
-      judul: 'Pesan Baru dari Traveler',
-      pesan: balasanTraveler,
-      ikon: Icons.chat_outlined,
-      warna: Colors.teal,
+      judul: 'Pesan Terkirim ke ${widget.namaTraveler} 📩',
+      pesan: 'Dari $_namaPemesan: "$pesanBersih"',
+      ikon: Icons.mark_chat_unread_rounded,
+      warna: Colors.teal.shade800,
+    );
+
+    // Simulasi Balasan Nyata dari Traveler Luar Negeri dengan Notifikasi Masuk
+    Future.delayed(const Duration(milliseconds: 1400), () {
+      if (!mounted) return;
+
+      String balasan = 'Baik kak $_namaPemesan, pesan sudah saya terima. Saya segera belikan barangnya di toko resmi ya 👍';
+      final lower = pesanBersih.toLowerCase();
+      if (lower.contains('struk')) {
+        balasan = 'Siap kak $_namaPemesan! Struk fisik toko aslinya akan saya foto dan rekam ke buku besar Blockchain.';
+      } else if (lower.contains('koper') || lower.contains('slot')) {
+        balasan = 'Slot koper masih muat 5 kg lagi kak, belanjaan Anda akan saya simpan rapi dengan pelindung bubble wrap.';
+      } else if (lower.contains('kapan') || lower.contains('mendarat') || lower.contains('jadwal')) {
+        balasan = 'Jadwal kepulangan ke Indonesia lusa kak. Nanti saya kabari saat mendarat di bandara ya!';
+      } else if (lower.contains('varian') || lower.contains('rasa') || lower.contains('warna')) {
+        balasan = 'Ada beberapa varian rasa/warna di rak etalase kak, mau saya fotokan langsung dari toko?';
+      }
+
+      final pesanBalasan = ModelPesanChat(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        teks: balasan,
+        adalahPengguna: false,
+        waktu: DateTime.now(),
+      );
+
+      setState(() {
+        _daftarObrolan.add(pesanBalasan);
+      });
+
+      _gulirKeBawah();
+
+      // Notifikasi Pesan Masuk dari Traveler ke Pemesan
+      LayananNotifikasi.kirimNotifikasi(
+        context,
+        judul: 'Pesan Baru dari ${widget.namaTraveler} ✈️',
+        pesan: 'Untuk $_namaPemesan: "$balasan"',
+        ikon: Icons.chat_rounded,
+        warna: Colors.indigo.shade800,
+      );
+    });
+  }
+
+  // Buka WhatsApp Langsung ke Traveler
+  Future<void> _bukaWhatsAppTraveler() async {
+    final String pesanAwal = Uri.encodeComponent(
+      'Halo ${widget.namaTraveler}, saya dari aplikasi JastipGo ingin konfirmasi pesanan titipan barang di ${widget.lokasiTraveler}.',
+    );
+    final Uri waUri = Uri.parse('https://wa.me/${widget.nomorWaTraveler}?text=$pesanAwal');
+
+    try {
+      final bool berhasil = await launchUrl(waUri, mode: LaunchMode.externalApplication);
+      if (!berhasil && mounted) {
+        _tampilkanSnack('Tidak dapat membuka WhatsApp. Silakan hubungi via obrolan aplikasi.');
+      }
+    } catch (_) {
+      if (mounted) {
+        _tampilkanSnack('Gagal membuka WhatsApp. Fitur chat in-app tetap aktif.');
+      }
+    }
+  }
+
+  void _tampilkanSnack(String teks) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(teks, style: const TextStyle(fontSize: 12)),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.teal.shade900,
+      ),
     );
   }
 
@@ -166,11 +217,11 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
                 children: [
                   Text(
                     widget.namaTraveler,
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    widget.lokasiTraveler,
+                    'Online • ${widget.lokasiTraveler}',
                     style: const TextStyle(fontSize: 10, color: Colors.white70),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -182,13 +233,21 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
         backgroundColor: Colors.teal.shade800,
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'Chat Langsung via WhatsApp',
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+            onPressed: _bukaWhatsAppTraveler,
+          ),
+        ],
       ),
       body: Column(
         children: [
-          // Banner Status Barang yang Dibicarakan (Jika ada)
+
+          // Banner Barang yang Dibicarakan (Jika ada)
           if (widget.barang != null)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               color: Colors.teal.shade50,
               child: Row(
                 children: [
@@ -196,10 +255,10 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
                     borderRadius: BorderRadius.circular(6),
                     child: Image.network(
                       widget.barang!.fotoUrl,
-                      width: 36,
-                      height: 36,
+                      width: 34,
+                      height: 34,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const Icon(Icons.shopping_bag, size: 36),
+                      errorBuilder: (_, _, _) => const Icon(Icons.shopping_bag, size: 34),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -209,7 +268,7 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
                       children: [
                         Text(
                           widget.barang!.namaBarang,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -224,95 +283,117 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
               ),
             ),
 
-          // Daftar Pesan Chat Antara Pembeli & Traveler
+          // Daftar Pesan Chat Antara Pemesan & Traveler
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               itemCount: _daftarObrolan.length,
               itemBuilder: (context, index) {
                 final pesan = _daftarObrolan[index];
-                final bool dariUser = pesan.adalahPengguna;
+                final bool dariPemesan = pesan.adalahPengguna;
 
-                return Align(
-                  alignment: dariUser ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    constraints: BoxConstraints(
-                      maxWidth: MediaQuery.of(context).size.width * 0.78,
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: dariUser ? Colors.teal.shade700 : Colors.white,
-                      borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(16),
-                        topRight: const Radius.circular(16),
-                        bottomLeft: Radius.circular(dariUser ? 16 : 4),
-                        bottomRight: Radius.circular(dariUser ? 4 : 16),
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    mainAxisAlignment: dariPemesan ? MainAxisAlignment.end : MainAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (!dariPemesan) ...[
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundColor: Colors.teal.shade100,
+                          child: const Icon(Icons.person, size: 16, color: Colors.teal),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      Flexible(
+                        child: Container(
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.76,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: dariPemesan ? Colors.teal.shade700 : Colors.white,
+                            borderRadius: BorderRadius.only(
+                              topLeft: const Radius.circular(14),
+                              topRight: const Radius.circular(14),
+                              bottomLeft: Radius.circular(dariPemesan ? 14 : 4),
+                              bottomRight: Radius.circular(dariPemesan ? 4 : 14),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.04),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: dariPemesan ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                dariPemesan ? '$_namaPemesan (Pemesan)' : 'Dimas Pratama (Traveler LN)',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: dariPemesan ? Colors.teal.shade100 : Colors.teal.shade800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                pesan.teks,
+                                style: TextStyle(
+                                  color: dariPemesan ? Colors.white : Colors.black87,
+                                  fontSize: 13,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
+                      if (dariPemesan) ...[
+                        const SizedBox(width: 8),
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundColor: Colors.teal.shade800,
+                          child: const Icon(Icons.account_circle, size: 16, color: Colors.white),
                         ),
                       ],
-                    ),
-                    child: Text(
-                      pesan.teks,
-                      style: TextStyle(
-                        color: dariUser ? Colors.white : Colors.black87,
-                        fontSize: 13,
-                        height: 1.4,
-                      ),
-                    ),
+                    ],
                   ),
                 );
               },
             ),
           ),
 
-          // Status Mengetik
-          if (_sedangMengetik)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.teal.shade700),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text('Traveler sedang membalas...', style: TextStyle(fontSize: 11, color: Colors.black45)),
-                ],
-              ),
-            ),
-
-          // Tombol Balasan Cepat
+          // Pilihan Pesan Cepat untuk Pemesan
           Container(
             height: 38,
             margin: const EdgeInsets.only(bottom: 6),
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: _pesanCepat.length,
+              itemCount: _templatePesanPemesan.length,
               itemBuilder: (context, index) {
-                final chip = _pesanCepat[index];
+                final teks = _templatePesanPemesan[index];
                 return Padding(
                   padding: const EdgeInsets.only(right: 6.0),
                   child: ActionChip(
-                    label: Text(chip, style: const TextStyle(fontSize: 11)),
+                    label: Text(teks, style: const TextStyle(fontSize: 11)),
                     backgroundColor: Colors.white,
-                    side: BorderSide(color: Colors.teal.shade200),
-                    onPressed: () => _kirimPesan(chip),
+                    side: BorderSide(color: Colors.teal.shade300),
+                    onPressed: () {
+                      _pesanController.text = teks;
+                    },
                   ),
                 );
               },
             ),
           ),
 
-          // Kotak Input Teks
+          // Kotak Input Teks Obrolan
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
@@ -332,14 +413,14 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
                     child: TextField(
                       controller: _pesanController,
                       textInputAction: TextInputAction.send,
-                      onSubmitted: (val) => _kirimPesan(val),
+                      onSubmitted: (val) => _kirimPesanLangsung(val),
                       decoration: InputDecoration(
-                        hintText: 'Ketik pesan negosiasi / pertanyaan...',
-                        hintStyle: const TextStyle(fontSize: 13),
+                        hintText: 'Ketik pesan titipan untuk ${widget.namaTraveler}...',
+                        hintStyle: const TextStyle(fontSize: 12.5),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide(color: Colors.grey.shade300),
+                          borderSide: BorderSide(color: Colors.teal.shade300),
                         ),
                         filled: true,
                         fillColor: const Color(0xFFF9FAFB),
@@ -352,7 +433,7 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
                     radius: 20,
                     child: IconButton(
                       icon: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
-                      onPressed: () => _kirimPesan(_pesanController.text),
+                      onPressed: () => _kirimPesanLangsung(_pesanController.text),
                     ),
                   ),
                 ],

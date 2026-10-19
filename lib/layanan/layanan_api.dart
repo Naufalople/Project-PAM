@@ -274,6 +274,47 @@ class LayananApi {
     return hasil;
   }
 
+  // Catat pertambahan jumlah barang terjual ke Database Lokal & REST API Backend Online (Audit Poin 1)
+  static Future<void> catatPembelianOnline(List<Map<String, dynamic>> daftarItem) async {
+    try {
+      final katalog = LayananBasisDataLokal.ambilSemuaKatalog();
+      bool adaPerubahan = false;
+
+      for (final item in daftarItem) {
+        final String namaItem = item['namaBarang']?.toString().toLowerCase() ?? '';
+        final int jumlahBeli = item['jumlah'] is int ? item['jumlah'] as int : 1;
+
+        for (var b in katalog) {
+          if (b.namaBarang.toLowerCase() == namaItem) {
+            b.jumlahPeminat += jumlahBeli;
+            adaPerubahan = true;
+          }
+        }
+      }
+
+      if (adaPerubahan) {
+        // 1. Simpan pembaruan ke Database Lokal Hive
+        await LayananBasisDataLokal.simpanSemuaKatalog(katalog);
+
+        // 2. Sinkronkan ke Database REST API Online secara asinkron
+        await http.put(
+          Uri.parse(_urlKatalogApi),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'name': 'JASTIPGO_CATALOG_DATA',
+            'data': {
+              'keterangan': 'Katalog Online JastipGo',
+              'terakhirDiperbarui': DateTime.now().toIso8601String(),
+              'products': katalog.map((e) => e.keJson()).toList(),
+            },
+          }),
+        ).timeout(const Duration(seconds: 4));
+      }
+    } catch (_) {
+      // Toleransi offline: data tetap tersimpan aman di database lokal
+    }
+  }
+
   // Tambah Barang Jastip Baru ke Database Lokal Hive
   static Future<void> tambahBarangJastip(ModelBarangJastip barangBaru) async {
     await LayananBasisDataLokal.tambahBarangKatalog(barangBaru);

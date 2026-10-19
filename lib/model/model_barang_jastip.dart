@@ -13,7 +13,7 @@ class ModelBarangJastip {
   final String namaToko;
   final String batasWaktuPo; // Waktu penutupan PO
   final double rating;
-  final int jumlahPeminat;
+  int jumlahPeminat;
 
   ModelBarangJastip({
     required this.id,

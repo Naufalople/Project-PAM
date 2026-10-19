@@ -8,6 +8,7 @@ import '../layanan/layanan_biometrik.dart';
 import '../layanan/layanan_blockchain.dart';
 import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_otentikasi.dart';
+import '../layanan/layanan_api.dart';
 import '../widget/dialog_sukses.dart';
 import '../widget/dialog_peringatan.dart';
 import 'halaman_status_pesanan.dart';
@@ -160,6 +161,16 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
           .toList(),
     );
     await LayananBasisDataLokal.tambahPesanan(pesananBaru);
+
+    // 4b. Sinkronkan pertambahan barang terjual ke Database Online & Lokal (Audit Poin 1)
+    await LayananApi.catatPembelianOnline(
+      widget.daftarItem
+          .map((item) => {
+                'namaBarang': item.namaBarang,
+                'jumlah': item.jumlah,
+              })
+          .toList(),
+    );
 
     // 5. Jika voucher digunakan, hapus voucher dari database agar hilang setelah dipakai
     if (_voucherTerpilih != null) {

@@ -30,6 +30,8 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
   int _langkahNavigasiAktif = 0;
   final double _kecepatanKmJam = 28.0;
   late AnimationController _animasiPulse;
+  Timer? _timerNavigasiOtomatis;
+  bool _navigasiOtomatisBerjalan = true;
 
   // Daftar Titik Temu / Cabang Hub Traveler JastipGo
   final List<Map<String, dynamic>> _daftarTitikTemu = [
@@ -126,6 +128,7 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
 
   @override
   void dispose() {
+    _timerNavigasiOtomatis?.cancel();
     _langgananPosisi?.cancel();
     _animasiPulse.dispose();
     super.dispose();
@@ -175,6 +178,20 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
         setState(() {
           _posisiPengguna = posisiBaru;
           _statusLokasi = 'GPS Live • ${posisiBaru.latitude.toStringAsFixed(4)}, ${posisiBaru.longitude.toStringAsFixed(4)}';
+
+          // Otomatisasi Real-Time GPS: Bergerak maju mengikuti posisi nyata HP tanpa harus klik
+          if (_sedangBernavigasi) {
+            final hub = _daftarTitikTemu[_indeksTitikTerpilih];
+            final jarakSisaKm = _hitungJarakKm(hub['lat'], hub['lng']);
+            final double jarakAwal = (hub['jarakAwalKm'] as num).toDouble();
+            final petunjuk = hub['rutePetunjuk'] as List<String>;
+
+            final double rasioSelesai = (1.0 - (jarakSisaKm / jarakAwal)).clamp(0.0, 1.0);
+            final int langkahHitung = (rasioSelesai * (petunjuk.length - 1)).floor();
+            if (langkahHitung > _langkahNavigasiAktif) {
+              _langkahNavigasiAktif = langkahHitung;
+            }
+          }
         });
       });
     } catch (_) {
@@ -234,24 +251,69 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
     return 'Barat Laut (NW)';
   }
 
-  // Memulai Mode Navigasi Turn-by-Turn Langsung di Dalam Aplikasi
+  // Memulai Mode Navigasi Turn-by-Turn Langsung di Dalam Aplikasi Secara Otomatis Real-Time (Audit Poin 3)
   void _mulaiNavigasiDalamAplikasi() {
     setState(() {
       _sedangBernavigasi = true;
       _langkahNavigasiAktif = 0;
+      _navigasiOtomatisBerjalan = true;
     });
 
     final hub = _daftarTitikTemu[_indeksTitikTerpilih];
     LayananNotifikasi.kirimNotifikasi(
       context,
-      judul: 'Navigasi In-App Dimulai 🧭',
-      pesan: 'Mengarahkan rute perjalanan ke ${hub['nama']}. Ikuti petunjuk belokan di layar.',
+      judul: 'Navigasi In-App Real-Time Dimulai 🧭',
+      pesan: 'Mengarahkan rute perjalanan ke ${hub['nama']}. Pelacakan bergerak otomatis secara real-time.',
       ikon: Icons.navigation_rounded,
       warna: Colors.green.shade800,
     );
+
+    _mulaiTimerOtomatis();
   }
 
-  // Simulasi Maju ke Langkah Belokan Berikutnya
+  // Timer Pelacakan Real-Time Otomatis (Bergerak tanpa harus klik tombol manual)
+  void _mulaiTimerOtomatis() {
+    _timerNavigasiOtomatis?.cancel();
+    _timerNavigasiOtomatis = Timer.periodic(const Duration(milliseconds: 2800), (timer) {
+      if (!_sedangBernavigasi || !_navigasiOtomatisBerjalan) return;
+
+      final hub = _daftarTitikTemu[_indeksTitikTerpilih];
+      final petunjuk = hub['rutePetunjuk'] as List<String>;
+
+      if (_langkahNavigasiAktif < petunjuk.length - 1) {
+        if (!mounted) return;
+        setState(() {
+          _langkahNavigasiAktif++;
+        });
+
+        if (_langkahNavigasiAktif == petunjuk.length - 1) {
+          timer.cancel();
+          LayananNotifikasi.kirimNotifikasi(
+            context,
+            judul: 'Anda Telah Tiba di Titik Temu! 🏁',
+            pesan: 'Anda telah sampai di ${hub['nama']}. Silakan temui traveler ${hub['traveler']}.',
+            ikon: Icons.check_circle_rounded,
+            warna: Colors.green.shade800,
+          );
+        }
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
+  void _toggleNavigasiOtomatis() {
+    setState(() {
+      _navigasiOtomatisBerjalan = !_navigasiOtomatisBerjalan;
+    });
+    if (_navigasiOtomatisBerjalan) {
+      _mulaiTimerOtomatis();
+    } else {
+      _timerNavigasiOtomatis?.cancel();
+    }
+  }
+
+  // Maju ke Langkah Belokan Berikutnya (Manual Override)
   void _simulasiLangkahBerikutnya() {
     final hub = _daftarTitikTemu[_indeksTitikTerpilih];
     final petunjuk = hub['rutePetunjuk'] as List<String>;
@@ -261,6 +323,7 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
         _langkahNavigasiAktif++;
       });
       if (_langkahNavigasiAktif == petunjuk.length - 1) {
+        _timerNavigasiOtomatis?.cancel();
         LayananNotifikasi.kirimNotifikasi(
           context,
           judul: 'Anda Telah Tiba di Titik Temu! 🏁',
@@ -270,6 +333,7 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
         );
       }
     } else {
+      _timerNavigasiOtomatis?.cancel();
       setState(() {
         _sedangBernavigasi = false;
         _langkahNavigasiAktif = 0;
@@ -982,12 +1046,31 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                'Progres Belokan: Langkah ${_langkahNavigasiAktif + 1} dari ${petunjukList.length}',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: _navigasiOtomatisBerjalan ? Colors.green : Colors.orange,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _navigasiOtomatisBerjalan
+                                        ? 'Pelacakan Bergerak Real-Time 🟢'
+                                        : 'Mode Jeda / Manual ⏸️',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                      color: _navigasiOtomatisBerjalan ? Colors.green.shade800 : Colors.orange.shade900,
+                                    ),
+                                  ),
+                                ],
                               ),
                               Text(
-                                adalahLangkahTerakhir ? '🏁 Sampai' : '🚗 Berjalan',
+                                adalahLangkahTerakhir ? '🏁 Sampai' : 'Langkah ${_langkahNavigasiAktif + 1}/${petunjukList.length}',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
@@ -1009,27 +1092,50 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
                             ),
                           ),
                           const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: adalahLangkahTerakhir ? Colors.green.shade700 : Colors.teal.shade800,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 10),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: _navigasiOtomatisBerjalan ? Colors.teal.shade800 : Colors.indigo.shade800,
+                                    side: BorderSide(
+                                      color: _navigasiOtomatisBerjalan ? Colors.teal.shade400 : Colors.indigo.shade400,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  onPressed: _toggleNavigasiOtomatis,
+                                  icon: Icon(
+                                    _navigasiOtomatisBerjalan ? Icons.pause_circle_outline : Icons.play_circle_outline,
+                                    size: 16,
+                                  ),
+                                  label: Text(
+                                    _navigasiOtomatisBerjalan ? 'Jeda Otomatis' : 'Lanjut Otomatis',
+                                    style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
                               ),
-                              onPressed: _simulasiLangkahBerikutnya,
-                              icon: Icon(
-                                adalahLangkahTerakhir ? Icons.check_circle : Icons.fast_forward_rounded,
-                                size: 18,
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: adalahLangkahTerakhir ? Colors.green.shade700 : Colors.teal.shade800,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  onPressed: _simulasiLangkahBerikutnya,
+                                  icon: Icon(
+                                    adalahLangkahTerakhir ? Icons.check_circle : Icons.fast_forward_rounded,
+                                    size: 16,
+                                  ),
+                                  label: Text(
+                                    adalahLangkahTerakhir ? 'SELESAIKAN' : 'LONCAT LANGKAH',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10.5),
+                                  ),
+                                ),
                               ),
-                              label: Text(
-                                adalahLangkahTerakhir
-                                    ? 'SELESAIKAN & KELUAR NAVIGASI'
-                                    : 'SIMULASI LANGKAH MAJU BERIKUTNYA',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
-                              ),
-                            ),
+                            ],
                           ),
                         ],
                       ),

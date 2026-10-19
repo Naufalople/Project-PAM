@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 // Model Notifikasi Mobile
 class ModelNotifikasi {
@@ -19,8 +20,97 @@ class ModelNotifikasi {
   });
 }
 
-// Layanan Notifikasi Berbasis Mobile
+// Layanan Notifikasi Berbasis Mobile & Status Bar Android OS
 class LayananNotifikasi {
+  static final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
+  static bool _terinisialisasi = false;
+
+  // Inisialisasi Android Notification Channel & Settings
+  static Future<void> inisialisasiNotifikasiSistem() async {
+    if (_terinisialisasi) return;
+
+    try {
+      const AndroidInitializationSettings inisialisasiAndroid =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
+
+      const DarwinInitializationSettings inisialisasiIos =
+          DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
+
+      const InitializationSettings pengaturanInisialisasi =
+          InitializationSettings(
+        android: inisialisasiAndroid,
+        iOS: inisialisasiIos,
+      );
+
+      await _localNotifications.initialize(
+        settings: pengaturanInisialisasi,
+      );
+
+      // Minta izin Android 13+ (POST_NOTIFICATIONS)
+      final androidImplementation = _localNotifications
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      if (androidImplementation != null) {
+        await androidImplementation.requestNotificationsPermission();
+      }
+
+      _terinisialisasi = true;
+    } catch (_) {
+      // Menghindari crash pada test runner lingkungan non-perangkat
+    }
+  }
+
+  // Tampilkan notifikasi di Notification Tray / Status Bar Sistem
+  static Future<void> tampilkanNotifikasiStatusBar({
+    required String judul,
+    required String pesan,
+    int? id,
+  }) async {
+    try {
+      if (!_terinisialisasi) {
+        await inisialisasiNotifikasiSistem();
+      }
+
+      const AndroidNotificationDetails rincianAndroid =
+          AndroidNotificationDetails(
+        'jastipgo_channel_id',
+        'Notifikasi JastipGo',
+        channelDescription:
+            'Saluran resmi notifikasi status pesanan, kupon promo, dan keamanan sesi JastipGo',
+        importance: Importance.max,
+        priority: Priority.high,
+        showWhen: true,
+        icon: '@mipmap/ic_launcher',
+      );
+
+      const DarwinNotificationDetails rincianIos = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      const NotificationDetails rincianNotifikasi = NotificationDetails(
+        android: rincianAndroid,
+        iOS: rincianIos,
+      );
+
+      final int notifId = id ?? (DateTime.now().millisecondsSinceEpoch % 100000);
+      await _localNotifications.show(
+        id: notifId,
+        title: judul,
+        body: pesan,
+        notificationDetails: rincianNotifikasi,
+      );
+    } catch (_) {
+      // Non-Android fallback
+    }
+  }
+
   // Riwayat notifikasi yang diterima pengguna
   static final List<ModelNotifikasi> _riwayatNotifikasi = [
     ModelNotifikasi(
@@ -37,7 +127,7 @@ class LayananNotifikasi {
     return List.from(_riwayatNotifikasi);
   }
 
-  // Tampilkan notifikasi Heads-Up / Pop-up Banner pada aplikasi
+  // Tampilkan notifikasi Heads-Up / Pop-up Banner pada aplikasi DAN pemicu status bar OS
   static void kirimNotifikasi(
     BuildContext context, {
     required String judul,
@@ -56,7 +146,10 @@ class LayananNotifikasi {
 
     _riwayatNotifikasi.insert(0, notifBaru);
 
-    // Tampilkan SnackBar / Banner Notifikasi di atas layar
+    // 1. Pemicu Notifikasi Nyata di Notification Tray / Status Bar Sistem OS
+    tampilkanNotifikasiStatusBar(judul: judul, pesan: pesan);
+
+    // 2. Tampilkan SnackBar / Banner Notifikasi di atas layar
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,

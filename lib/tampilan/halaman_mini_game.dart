@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_konversi.dart';
 import '../layanan/layanan_notifikasi.dart';
+import '../layanan/layanan_otentikasi.dart';
 
 // Halaman Mini Game Sederhana: "Tebak Harga Koper Jastip"
 class HalamanMiniGame extends StatefulWidget {
@@ -16,9 +18,33 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
   int _nomorSoal = 0;
   bool _kuisSelesai = false;
   ModelVoucher? _voucherHadiah;
+  bool _hadiahSudahPernahDiklaim = false;
+  String _peranAktif = 'PEMESAN';
+
+  static const String _kunciVoucherKuisKlaim = 'kuis_voucher_sudah_diklaim';
+  static const String _kunciRiwayatSoalTerjawab = 'riwayat_soal_kuis_terjawab';
+
+  @override
+  void initState() {
+    super.initState();
+    _muatStatusAntiEksploitasi();
+  }
+
+  Future<void> _muatStatusAntiEksploitasi() async {
+    final prefs = await SharedPreferences.getInstance();
+    final bool pernahKlaim = prefs.getBool(_kunciVoucherKuisKlaim) ?? false;
+    final peran = await LayananOtentikasi.ambilPeranAktif();
+    if (mounted) {
+      setState(() {
+        _peranAktif = peran;
+        _hadiahSudahPernahDiklaim = pernahKlaim;
+      });
+    }
+  }
 
   final List<Map<String, dynamic>> _daftarSoal = [
     {
+      'id': 'SOAL-1',
       'pertanyaan': 'Berapa rata-rata harga sekotak kue Tokyo Banana asli isi 8 di stasiun Tokyo?',
       'negara': '🇯🇵 Jepang',
       'pilihan': ['¥500 (~Rp 56.000)', '¥1.200 (~Rp 135.000)', '¥3.500 (~Rp 390.000)'],
@@ -26,6 +52,7 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
       'fakta': 'Kue Tokyo Banana asli biasanya dibanderol sekitar 1.200 Yen di Tokyo Station!',
     },
     {
+      'id': 'SOAL-2',
       'pertanyaan': 'Berapa harga tas belanja ikonik Harrods Green Bag di Knightsbridge London?',
       'negara': '🇬🇧 London (UK)',
       'pilihan': ['£10 (~Rp 206.000)', '£35 (~Rp 720.000)', '£95 (~Rp 1.950.000)'],
@@ -33,6 +60,7 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
       'fakta': 'Tas belanja Harrods ukuran medium rata-rata dijual seharga £35.',
     },
     {
+      'id': 'SOAL-3',
       'pertanyaan': 'Berapa batas maksimal pembebasan bea cukai barang bawaan pribadi masuk ke Indonesia?',
       'negara': '🇮🇩 Bea Cukai RI',
       'pilihan': ['FOB USD 250', 'FOB USD 500', 'FOB USD 1.000'],
@@ -40,6 +68,7 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
       'fakta': 'Sesuai PMK 203/2017, batas pembebasan bea masuk adalah FOB USD 500 per penumpang.',
     },
     {
+      'id': 'SOAL-4',
       'pertanyaan': 'Di distrik manakah surga belanja skincare dan kosmetik paling terkenal di Seoul?',
       'negara': '🇰🇷 Korea Selatan',
       'pilihan': ['Myeongdong', 'Gangnam Station', 'Hongdae Market'],
@@ -51,24 +80,37 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
   Future<void> _jawabPertanyaan(int indeksPilihan) async {
     final bool benar = indeksPilihan == _daftarSoal[_nomorSoal]['jawabanBenar'];
 
+    // Simpan riwayat ID soal yang dijawab ke SharedPreferences lokal
+    final String idSoal = _daftarSoal[_nomorSoal]['id']?.toString() ?? 'SOAL-$_nomorSoal';
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> riwayatSoal = prefs.getStringList(_kunciRiwayatSoalTerjawab) ?? [];
+    if (!riwayatSoal.contains(idSoal)) {
+      riwayatSoal.add(idSoal);
+      await prefs.setStringList(_kunciRiwayatSoalTerjawab, riwayatSoal);
+    }
+
     int skorBaru = _skor;
     if (benar) {
       skorBaru += 25;
       setState(() => _skor = skorBaru);
-      LayananNotifikasi.kirimNotifikasi(
-        context,
-        judul: 'Jawaban Benar! 🎯',
-        pesan: '+25 Koin Jastip ditambahkan ke saldo koper Anda.',
-        ikon: Icons.stars,
-        warna: Colors.amber.shade800,
-      );
+      if (mounted) {
+        LayananNotifikasi.kirimNotifikasi(
+          context,
+          judul: 'Jawaban Benar! 🎯',
+          pesan: '+25 Koin Jastip ditambahkan ke saldo koper Anda.',
+          ikon: Icons.stars,
+          warna: Colors.amber.shade800,
+        );
+      }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Kurang tepat! Fakta: ${_daftarSoal[_nomorSoal]['fakta']}'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Kurang tepat! Fakta: ${_daftarSoal[_nomorSoal]['fakta']}'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     }
 
     if (_nomorSoal < _daftarSoal.length - 1) {
@@ -76,21 +118,37 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
     } else {
       ModelVoucher? hadiah;
       if (skorBaru >= 50) {
-        hadiah = ModelVoucher(
-          kode: 'KUIS50',
-          judul: 'Voucher Juara Kuis Rp 50.000',
-          potonganIdr: 50000,
-          deskripsi: 'Hadiah keberhasilan kuis wawasan koper jastip.',
-        );
-        await LayananBasisDataLokal.simpanVoucher(hadiah);
-        if (!mounted) return;
-        LayananNotifikasi.kirimNotifikasi(
-          context,
-          judul: 'Selamat! Voucher Hadiah Diberikan! 🏆',
-          pesan: 'Anda memenangkan Voucher KUIS50 (Potongan Rp 50.000) dan tersimpan di akun Anda!',
-          ikon: Icons.card_giftcard,
-          warna: Colors.indigo.shade800,
-        );
+        // Validasi Anti-Eksploitasi: Cek apakah voucher kuis sudah pernah diklaim sebelumnya
+        if (!_hadiahSudahPernahDiklaim) {
+          hadiah = ModelVoucher(
+            kode: 'KUIS50',
+            judul: 'Voucher Juara Kuis Rp 50.000',
+            potonganIdr: 50000,
+            deskripsi: 'Hadiah keberhasilan kuis wawasan koper jastip.',
+          );
+          await LayananBasisDataLokal.simpanVoucher(hadiah);
+          await prefs.setBool(_kunciVoucherKuisKlaim, true);
+          _hadiahSudahPernahDiklaim = true;
+
+          if (!mounted) return;
+          LayananNotifikasi.kirimNotifikasi(
+            context,
+            judul: 'Selamat! Voucher Hadiah Diberikan! 🏆',
+            pesan: 'Anda memenangkan Voucher KUIS50 (Potongan Rp 50.000) dan tersimpan di akun Anda!',
+            ikon: Icons.card_giftcard,
+            warna: Colors.indigo.shade800,
+          );
+        } else {
+          // Anti-Eksploitasi: Reward sudah pernah diklaim sebelumnya
+          if (!mounted) return;
+          LayananNotifikasi.kirimNotifikasi(
+            context,
+            judul: 'Kuis Selesai (Mode Latihan) 🎯',
+            pesan: 'Reward voucher kuis ini sudah pernah Anda klaim sebelumnya. Mode latihan tidak memberikan kupon ganda.',
+            ikon: Icons.verified_user_outlined,
+            warna: Colors.teal.shade700,
+          );
+        }
       }
 
       setState(() {
@@ -107,10 +165,65 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
       _kuisSelesai = false;
       _voucherHadiah = null;
     });
+    _muatStatusAntiEksploitasi();
   }
 
   @override
   Widget build(BuildContext context) {
+    // Proteksi RBAC: Traveler tidak dapat mengakses Mini Game (Poin 2)
+    if (_peranAktif == 'TRAVELER') {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF7F9FC),
+        appBar: AppBar(
+          title: const Text('Mini Game Koper Jastip'),
+          backgroundColor: Colors.indigo.shade800,
+          foregroundColor: Colors.white,
+          elevation: 0,
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.sports_esports_outlined, size: 64, color: Colors.amber.shade800),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Akses Khusus Pemesan',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Mini game Tebak Harga Koper & klaim voucher diskon belanja hanya diperuntukkan bagi Pemesan jastip.\n\nSebagai Traveler, antarmuka Anda difokuskan pada pemantauan titipan barang masuk, logistik koper, dan pencatatan belanja.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo.shade800,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back, size: 18),
+                  label: const Text('Kembali ke Menu'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
       appBar: AppBar(
@@ -201,6 +314,42 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
                             ),
                           ),
                         ],
+                        if (_voucherHadiah == null && _hadiahSudahPernahDiklaim && _skor >= 50) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Colors.blueGrey.shade50,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.blueGrey.shade300),
+                            ),
+                            child: Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.verified_outlined, color: Colors.blueGrey.shade800, size: 20),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Reward Kuis Sudah Pernah Diklaim',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: Colors.blueGrey.shade900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Voucher Rp 50.000 sudah pernah Anda klaim sebelumnya. Sesuai aturan anti-eksploitasi, bermain ulang berfungsi sebagai mode latihan dan tidak memberikan kupon tambahan.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 11, color: Colors.black54),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 24),
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
@@ -220,6 +369,33 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (_hadiahSudahPernahDiklaim) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.blueGrey.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.blueGrey.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.shield_outlined, color: Colors.blueGrey.shade800, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Mode Latihan: Reward voucher kuis sudah pernah Anda klaim.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.blueGrey.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     // Status Skor & Nomor Soal
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,

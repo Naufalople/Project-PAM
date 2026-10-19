@@ -7,12 +7,14 @@ class KartuBarang extends StatelessWidget {
   final ModelBarangJastip barang;
   final VoidCallback saatDitekan;
   final VoidCallback saatTombolTitip;
+  final bool bisaTitip;
 
   const KartuBarang({
     super.key,
     required this.barang,
     required this.saatDitekan,
     required this.saatTombolTitip,
+    this.bisaTitip = true,
   });
 
   @override
@@ -155,18 +157,18 @@ class KartuBarang extends StatelessWidget {
                     height: 32,
                     child: ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.teal.shade600,
+                        backgroundColor: bisaTitip ? Colors.teal.shade600 : Colors.indigo.shade600,
                         foregroundColor: Colors.white,
                         padding: EdgeInsets.zero,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      onPressed: saatTombolTitip,
-                      icon: const Icon(Icons.add_shopping_cart, size: 15),
-                      label: const Text(
-                        'Titip',
-                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                      onPressed: bisaTitip ? saatTombolTitip : saatDitekan,
+                      icon: Icon(bisaTitip ? Icons.add_shopping_cart : Icons.info_outline, size: 15),
+                      label: Text(
+                        bisaTitip ? 'Titip' : 'Detail',
+                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),

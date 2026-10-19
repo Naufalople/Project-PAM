@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../model/model_pengguna.dart';
 import '../layanan/layanan_otentikasi.dart';
 import '../layanan/layanan_biometrik.dart';
@@ -7,6 +9,8 @@ import 'halaman_saran_kesan.dart';
 import 'halaman_sertifikat_blockchain.dart';
 import 'halaman_peta_lokasi.dart';
 import 'halaman_status_pesanan.dart';
+import 'halaman_kelola_pesanan_traveler.dart';
+import 'halaman_chat_traveler.dart';
 
 // Halaman Profil Pengguna: Informasi Akun, Foto, Sertifikat Blockchain, dan Logout
 class HalamanProfil extends StatefulWidget {
@@ -99,6 +103,98 @@ class _HalamanProfilState extends State<HalamanProfil> {
       MaterialPageRoute(builder: (context) => const HalamanMasuk()),
       (route) => false,
     );
+  }
+
+  final ImagePicker _picker = ImagePicker();
+
+  ImageProvider _dapatkanGambarProfil(String urlAtauPath) {
+    if (urlAtauPath.startsWith('http://') || urlAtauPath.startsWith('https://')) {
+      return NetworkImage(urlAtauPath);
+    }
+    final file = File(urlAtauPath);
+    if (file.existsSync()) {
+      return FileImage(file);
+    }
+    return const NetworkImage('https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400');
+  }
+
+  Future<void> _pilihSumberFotoProfil() async {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (bSheetCtx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Pilih Sumber Foto Profil',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.teal.shade50, shape: BoxShape.circle),
+                  child: const Icon(Icons.camera_alt, color: Colors.teal),
+                ),
+                title: const Text('Ambil Foto dari Kamera'),
+                onTap: () {
+                  Navigator.pop(bSheetCtx);
+                  _ambilFotoProfil(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.indigo.shade50, shape: BoxShape.circle),
+                  child: const Icon(Icons.photo_library, color: Colors.indigo),
+                ),
+                title: const Text('Pilih dari Galeri HP'),
+                onTap: () {
+                  Navigator.pop(bSheetCtx);
+                  _ambilFotoProfil(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _ambilFotoProfil(ImageSource sumber) async {
+    try {
+      final XFile? foto = await _picker.pickImage(
+        source: sumber,
+        imageQuality: 85,
+        maxWidth: 800,
+      );
+      if (foto != null) {
+        await LayananOtentikasi.perbaruiFotoProfilAktif(foto.path);
+        await _muatProfil();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Foto profil kustom berhasil disimpan dan diperbarui!'),
+            backgroundColor: Colors.teal,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memilih foto: $e'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _dialogEditProfil() async {
@@ -206,20 +302,36 @@ class _HalamanProfilState extends State<HalamanProfil> {
                     alignment: Alignment.bottomRight,
                     children: [
                       CircleAvatar(
-                        radius: 46,
+                        radius: 50,
                         backgroundColor: Colors.teal.shade100,
-                        backgroundImage: NetworkImage(fotoUrl),
+                        backgroundImage: _dapatkanGambarProfil(fotoUrl),
                       ),
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.green,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
+                      GestureDetector(
+                        onTap: _pilihSumberFotoProfil,
+                        child: Container(
+                          padding: const EdgeInsets.all(7),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.shade800,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2.5),
+                            boxShadow: [
+                              BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 4),
+                            ],
+                          ),
+                          child: const Icon(Icons.camera_alt_rounded, size: 16, color: Colors.white),
                         ),
-                        child: const Icon(Icons.check, size: 12, color: Colors.white),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 6),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.teal.shade800,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: _pilihSumberFotoProfil,
+                    icon: const Icon(Icons.photo_camera_back_outlined, size: 14),
+                    label: const Text('Ubah Foto Profil', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(height: 14),
                   Text(
@@ -290,18 +402,63 @@ class _HalamanProfilState extends State<HalamanProfil> {
                     leading: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.orange.shade50,
+                        color: (_profilPengguna?.peran == 'TRAVELER') ? Colors.indigo.shade50 : Colors.orange.shade50,
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(Icons.local_shipping_rounded, color: Colors.deepOrange.shade800),
+                      child: Icon(
+                        (_profilPengguna?.peran == 'TRAVELER') ? Icons.flight_takeoff : Icons.local_shipping_rounded,
+                        color: (_profilPengguna?.peran == 'TRAVELER') ? Colors.indigo.shade800 : Colors.deepOrange.shade800,
+                      ),
                     ),
-                    title: const Text('Pesanan Saya & Rekber Escrow', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                    subtitle: const Text('Lacak status barang & perlindungan dana', style: TextStyle(fontSize: 11)),
+                    title: Text(
+                      (_profilPengguna?.peran == 'TRAVELER')
+                          ? 'Kelola Pesanan Masuk (Traveler)'
+                          : 'Pesanan Saya & Rekber Escrow',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                    subtitle: Text(
+                      (_profilPengguna?.peran == 'TRAVELER')
+                          ? 'ACC pesanan titipan & konfirmasi belanja LN'
+                          : 'Lacak status barang & perlindungan dana',
+                      style: const TextStyle(fontSize: 11),
+                    ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const HalamanStatusPesanan()),
+                        MaterialPageRoute(
+                          builder: (context) => (_profilPengguna?.peran == 'TRAVELER')
+                              ? const HalamanKelolaPesananTraveler()
+                              : const HalamanStatusPesanan(),
+                        ),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.shade50,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.forum_rounded, color: Colors.teal.shade800),
+                    ),
+                    title: Text(
+                      (_profilPengguna?.peran == 'TRAVELER')
+                          ? 'Chat Langsung dengan Pemesan'
+                          : 'Chat dengan Traveler (Dimas)',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                    subtitle: const Text(
+                      'Obrolan nyata dua arah antar akun manusia (bukan bot)',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const HalamanChatTraveler()),
                       );
                     },
                   ),

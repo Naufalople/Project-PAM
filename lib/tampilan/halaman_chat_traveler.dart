@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../model/model_barang_jastip.dart';
-import '../model/model_pesan_chat.dart';
+import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_otentikasi.dart';
+import '../model/model_barang_jastip.dart';
+import '../model/model_pesan_chat.dart';
 
-// Halaman Ruang Obrolan Langsung (Direct Human Chat) Antara Pemesan dan Traveler
-// Mendukung simulasi dua arah nyata (tanpa auto-bot) serta tautan WhatsApp langsung.
+// Halaman Ruang Obrolan Langsung (Direct Human Chat) Dua Arah Antara Pemesan dan Traveler
+// Memenuhi Ketentuan Tambahan Revisi (Poin 5):
+// 1. Sisi Pemesan: DILARANG chat ke sesama pemesan; HANYA bisa chat ke Traveler jika memiliki keterikatan transaksi aktif.
+// 2. Sisi Traveler: Memiliki tampilan Inbox transparan dari berbagai pemesan dengan badge counter jumlah pemesan aktif chat, melihat identitas masing-masing, dan membalas secara individual.
 class HalamanChatTraveler extends StatefulWidget {
   final ModelBarangJastip? barang;
   final String namaTraveler;
@@ -29,54 +33,59 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
   final TextEditingController _pesanController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
-  String _namaPemesan = 'Pemesan';
-  late List<ModelPesanChat> _daftarObrolan;
+  String _peranAktif = 'PEMESAN'; // 'PEMESAN' atau 'TRAVELER'
+  String _namaPengirimAktif = 'Pemesan';
+  String _idPemesanAktif = 'pemesan@jastipgo.com';
+  String? _idPesananAktif;
+  bool _sedangMemuat = true;
+
+  // Thread pemesan yang sedang dibuka oleh Traveler (Poin 5)
+  ThreadChatPemesan? _threadTerpilih;
 
   final List<String> _templatePesanPemesan = [
-    'Kak Dimas, slot koper masih muat untuk barang ini?',
-    'Minta tolong fotoin struk resmi tokonya ya kak',
+    'Kak Dimas, apakah koper masih muat untuk titip barang ini?',
+    'Minta tolong fotokan struk resmi tokonya ya kak',
     'Kira-kira kapan jadwal mendarat di bandara Indonesia?',
-    'Bisa tolong carikan varian rasa/warna lainnya?',
+    'Apakah bisa request varian warna atau rasa lainnya?',
+  ];
+
+  final List<String> _templatePesanTraveler = [
+    'Halo! Stok barangnya masih tersedia banyak di etalase toko resmi.',
+    'Siap, struk fisik resmi dari toko sudah saya simpan dan tercatat di Blockchain.',
+    'Slot koper masih aman kak, saya bungkus dengan bubble wrap tebal ya.',
+    'Pesawat saya dijadwalkan tiba di Indonesia lusa, siap COD di Hub Kampus UPN.',
   ];
 
   @override
   void initState() {
     super.initState();
-    _muatProfilPemesan();
-
-    final String namaBarang = widget.barang?.namaBarang ?? 'Tokyo Banana Tokyo Station Edition';
-    final String negara = widget.barang?.negara ?? 'Jepang';
-
-    _daftarObrolan = [
-      ModelPesanChat(
-        id: '1',
-        teks: 'Halo! Saya ${widget.namaTraveler}. Saat ini saya ${widget.lokasiTraveler}. Ada yang ingin dititipkan dari $negara?',
-        adalahPengguna: false,
-        waktu: DateTime.now().subtract(const Duration(minutes: 15)),
-      ),
-      ModelPesanChat(
-        id: '2',
-        teks: 'Halo kak Dimas, saya mau titip "$namaBarang". Apakah barang ini masih tersedia di toko resmi sana?',
-        adalahPengguna: true,
-        waktu: DateTime.now().subtract(const Duration(minutes: 12)),
-      ),
-      ModelPesanChat(
-        id: '3',
-        teks: 'Tersedia kak! Tadi saya cek di toko fisiknya stoknya masih ada. Nanti struk pembelian aslinya akan saya verifikasi ke sistem Blockchain JastipGo ya 👍',
-        adalahPengguna: false,
-        waktu: DateTime.now().subtract(const Duration(minutes: 10)),
-      ),
-    ];
+    _muatProfilPengguna();
   }
 
-  Future<void> _muatProfilPemesan() async {
+  Future<void> _muatProfilPengguna() async {
     final profil = await LayananOtentikasi.ambilProfilAktif();
+    final daftarPesanan = LayananBasisDataLokal.ambilSemuaPesanan();
+
     if (!mounted) return;
-    if (profil != null) {
-      setState(() {
-        _namaPemesan = profil.nama;
-      });
-    }
+    setState(() {
+      if (profil != null) {
+        _peranAktif = profil.peran == 'TRAVELER' ? 'TRAVELER' : 'PEMESAN';
+        _namaPengirimAktif = profil.nama;
+        _idPemesanAktif = profil.email.isNotEmpty ? profil.email : 'pemesan@jastipgo.com';
+      } else {
+        _peranAktif = 'PEMESAN';
+        _namaPengirimAktif = 'Pemesan';
+        _idPemesanAktif = 'pemesan@jastipgo.com';
+      }
+
+      if (daftarPesanan.isNotEmpty) {
+        _idPesananAktif = daftarPesanan.first.idPesanan;
+      }
+
+      _sedangMemuat = false;
+    });
+
+    _gulirKeBawah();
   }
 
   @override
@@ -98,73 +107,55 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
     });
   }
 
-  // Kirim Pesan Langsung dari Pemesan ke Traveler (Dimas Pratama)
-  void _kirimPesanLangsung(String teks) {
+  // Kirim Pesan Nyata ke Database Hive & Picu Notifikasi ke Lawan Bicara
+  Future<void> _kirimPesanNyata(
+    String teks, {
+    String? targetIdPemesan,
+    String? targetNamaPemesan,
+  }) async {
     if (teks.trim().isEmpty) return;
-
     final String pesanBersih = teks.trim();
     _pesanController.clear();
+
+    final bool adalahTraveler = _peranAktif == 'TRAVELER';
+    final targetId = targetIdPemesan ?? _idPemesanAktif;
+    final targetNama = targetNamaPemesan ?? _namaPengirimAktif;
 
     final pesanBaru = ModelPesanChat(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       teks: pesanBersih,
-      adalahPengguna: true,
+      adalahPengguna: !adalahTraveler,
+      pengirim: _peranAktif,
+      namaPengirim: adalahTraveler ? 'Dimas Pratama (Traveler)' : _namaPengirimAktif,
       waktu: DateTime.now(),
+      idPemesan: targetId,
+      namaPemesan: targetNama,
+      idPesanan: _idPesananAktif,
     );
 
-    setState(() {
-      _daftarObrolan.add(pesanBaru);
-    });
-
+    await LayananBasisDataLokal.kirimPesanChat(pesanBaru);
     _gulirKeBawah();
 
-    // Notifikasi Pesan Terkirim dari Pemesan
-    LayananNotifikasi.kirimNotifikasi(
-      context,
-      judul: 'Pesan Terkirim ke ${widget.namaTraveler} 📩',
-      pesan: 'Dari $_namaPemesan: "$pesanBersih"',
-      ikon: Icons.mark_chat_unread_rounded,
-      warna: Colors.teal.shade800,
-    );
+    if (!mounted) return;
 
-    // Simulasi Balasan Nyata dari Traveler Luar Negeri dengan Notifikasi Masuk
-    Future.delayed(const Duration(milliseconds: 1400), () {
-      if (!mounted) return;
-
-      String balasan = 'Baik kak $_namaPemesan, pesan sudah saya terima. Saya segera belikan barangnya di toko resmi ya 👍';
-      final lower = pesanBersih.toLowerCase();
-      if (lower.contains('struk')) {
-        balasan = 'Siap kak $_namaPemesan! Struk fisik toko aslinya akan saya foto dan rekam ke buku besar Blockchain.';
-      } else if (lower.contains('koper') || lower.contains('slot')) {
-        balasan = 'Slot koper masih muat 5 kg lagi kak, belanjaan Anda akan saya simpan rapi dengan pelindung bubble wrap.';
-      } else if (lower.contains('kapan') || lower.contains('mendarat') || lower.contains('jadwal')) {
-        balasan = 'Jadwal kepulangan ke Indonesia lusa kak. Nanti saya kabari saat mendarat di bandara ya!';
-      } else if (lower.contains('varian') || lower.contains('rasa') || lower.contains('warna')) {
-        balasan = 'Ada beberapa varian rasa/warna di rak etalase kak, mau saya fotokan langsung dari toko?';
-      }
-
-      final pesanBalasan = ModelPesanChat(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        teks: balasan,
-        adalahPengguna: false,
-        waktu: DateTime.now(),
-      );
-
-      setState(() {
-        _daftarObrolan.add(pesanBalasan);
-      });
-
-      _gulirKeBawah();
-
-      // Notifikasi Pesan Masuk dari Traveler ke Pemesan
+    // Notifikasi Diterima oleh Pihak Lain
+    if (adalahTraveler) {
       LayananNotifikasi.kirimNotifikasi(
         context,
-        judul: 'Pesan Baru dari ${widget.namaTraveler} ✈️',
-        pesan: 'Untuk $_namaPemesan: "$balasan"',
+        judul: 'Pesan Masuk dari Traveler Dimas Pratama ✈️',
+        pesan: 'Untuk $targetNama: "$pesanBersih"',
         ikon: Icons.chat_rounded,
         warna: Colors.indigo.shade800,
       );
-    });
+    } else {
+      LayananNotifikasi.kirimNotifikasi(
+        context,
+        judul: 'Pesan Masuk dari Pemesan ($_namaPengirimAktif) 📩',
+        pesan: 'Untuk Traveler Dimas Pratama: "$pesanBersih"',
+        ikon: Icons.mark_chat_unread_rounded,
+        warna: Colors.teal.shade800,
+      );
+    }
   }
 
   // Buka WhatsApp Langsung ke Traveler
@@ -177,11 +168,11 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
     try {
       final bool berhasil = await launchUrl(waUri, mode: LaunchMode.externalApplication);
       if (!berhasil && mounted) {
-        _tampilkanSnack('Tidak dapat membuka WhatsApp. Silakan hubungi via obrolan aplikasi.');
+        _tampilkanSnack('Tidak dapat membuka WhatsApp. Silakan gunakan chat langsung di aplikasi.');
       }
     } catch (_) {
       if (mounted) {
-        _tampilkanSnack('Gagal membuka WhatsApp. Fitur chat in-app tetap aktif.');
+        _tampilkanSnack('Gagal membuka WhatsApp. Chat in-app tetap aktif dan tersimpan.');
       }
     }
   }
@@ -198,16 +189,351 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
 
   @override
   Widget build(BuildContext context) {
+    if (_sedangMemuat) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Ruang Chat Jastip')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final bool adalahTraveler = _peranAktif == 'TRAVELER';
+
+    // =========================================================================
+    // SISI TRAVELER: TAMPILAN INBOX MULTI-PEMESAN (Poin 5)
+    // =========================================================================
+    if (adalahTraveler && _threadTerpilih == null) {
+      return _bangunTampilanInboxTraveler();
+    }
+
+    // =========================================================================
+    // SISI TRAVELER (CHAT INDIVIDUAL) ATAU SISI PEMESAN (CHAT DENGAN TRAVELER)
+    // =========================================================================
+    return _bangunTampilanRuangChat(adalahTraveler);
+  }
+
+  // ---------------------------------------------------------------------------
+  // TAMPILAN 1: INBOX TRAVELER (Multi-Pemesan dengan Counter Badge)
+  // ---------------------------------------------------------------------------
+  Widget _bangunTampilanInboxTraveler() {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
       appBar: AppBar(
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Inbox Chat Pemesan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('Pesan Masuk dari Berbagai Pemesan', style: TextStyle(fontSize: 11, color: Colors.white70)),
+          ],
+        ),
+        backgroundColor: Colors.indigo.shade800,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'Ganti Peran Pengirim (Uji Coba/Demo)',
+            icon: const Icon(Icons.swap_horiz_rounded),
+            onPressed: () {
+              setState(() {
+                _peranAktif = 'PEMESAN';
+                _namaPengirimAktif = 'Pemesan Jastip';
+                _threadTerpilih = null;
+              });
+              _tampilkanSnack('Sekarang beralih ke peran PEMESAN');
+            },
+          ),
+          IconButton(
+            tooltip: 'Hubungi via WhatsApp',
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+            onPressed: _bukaWhatsAppTraveler,
+          ),
+        ],
+      ),
+      body: ValueListenableBuilder<Box>(
+        valueListenable: Hive.box(LayananBasisDataLokal.namaKotakChat).listenable(),
+        builder: (context, box, child) {
+          final threads = LayananBasisDataLokal.ambilDaftarThreadPemesan();
+
+          return Column(
+            children: [
+              // Badge & Counter Jumlah Pemesan Aktif Chat (Poin 5)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.indigo.shade900, Colors.indigo.shade700],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.indigo.withValues(alpha: 0.2),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.mark_chat_unread_rounded, color: Colors.white, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                '💬 ${threads.length} Pemesan Sedang Chat',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade400,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  'Aktif',
+                                  style: TextStyle(
+                                    color: Colors.indigo.shade900,
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          const Text(
+                            'Transparan: Pilih pemesan untuk melihat detail dan membalas secara individual.',
+                            style: TextStyle(color: Colors.white70, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Daftar Thread Inbox Pemesan
+              Expanded(
+                child: threads.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.inbox_rounded, size: 64, color: Colors.grey.shade400),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Belum Ada Chat Masuk',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Chat dari pemesan barang jastip akan otomatis muncul di sini.',
+                              style: TextStyle(color: Colors.black54, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: threads.length,
+                        separatorBuilder: (_, _) => Divider(height: 1, color: Colors.grey.shade200),
+                        itemBuilder: (context, index) {
+                          final thread = threads[index];
+                          final waktu = thread.waktuTerakhir;
+                          final String waktuStr =
+                              '${waktu.hour.toString().padLeft(2, '0')}:${waktu.minute.toString().padLeft(2, '0')}';
+
+                          return Material(
+                            color: Colors.white,
+                            child: InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _threadTerpilih = thread;
+                                });
+                                _gulirKeBawah();
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                child: Row(
+                                  children: [
+                                    Stack(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 24,
+                                          backgroundColor: Colors.indigo.shade100,
+                                          child: Text(
+                                            thread.namaPemesan.isNotEmpty
+                                                ? thread.namaPemesan.substring(0, 1).toUpperCase()
+                                                : 'P',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 18,
+                                              color: Colors.indigo.shade800,
+                                            ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          right: 0,
+                                          bottom: 0,
+                                          child: Container(
+                                            width: 12,
+                                            height: 12,
+                                            decoration: BoxDecoration(
+                                              color: Colors.green,
+                                              shape: BoxShape.circle,
+                                              border: Border.all(color: Colors.white, width: 2),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  thread.namaPemesan,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 13.5,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                              Text(
+                                                waktuStr,
+                                                style: const TextStyle(
+                                                  fontSize: 10.5,
+                                                  color: Colors.black45,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 3),
+                                          if (thread.infoTitipan != null)
+                                            Container(
+                                              margin: const EdgeInsets.only(bottom: 3),
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                              decoration: BoxDecoration(
+                                                color: Colors.amber.shade50,
+                                                borderRadius: BorderRadius.circular(4),
+                                                border: Border.all(color: Colors.amber.shade200),
+                                              ),
+                                              child: Text(
+                                                '📦 ${thread.infoTitipan}',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.amber.shade900,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          Text(
+                                            thread.pesanTerakhir,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.black54,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: Colors.indigo.shade50,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        '${thread.totalPesan}',
+                                        style: TextStyle(
+                                          color: Colors.indigo.shade800,
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // TAMPILAN 2: RUANG CHAT (Individual untuk Traveler atau Pemesan)
+  // ---------------------------------------------------------------------------
+  Widget _bangunTampilanRuangChat(bool adalahTraveler) {
+    // Validasi Sisi Pemesan: Harus memiliki keterikatan transaksi aktif (Poin 5)
+    final daftarPesananPemesan = LayananBasisDataLokal.ambilSemuaPesanan();
+    final bool punyaTransaksiAktif = daftarPesananPemesan.isNotEmpty;
+
+    final String targetIdPemesan = adalahTraveler
+        ? (_threadTerpilih?.idPemesan ?? 'pemesan@jastipgo.com')
+        : _idPemesanAktif;
+    final String namaLawanBicara = adalahTraveler
+        ? (_threadTerpilih?.namaPemesan ?? 'Pemesan Jastip')
+        : widget.namaTraveler;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F9FC),
+      appBar: AppBar(
+        leading: adalahTraveler
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Kembali ke Inbox',
+                onPressed: () {
+                  setState(() {
+                    _threadTerpilih = null;
+                  });
+                },
+              )
+            : null,
         title: Row(
           children: [
             CircleAvatar(
               radius: 18,
-              backgroundColor: Colors.teal.shade100,
-              backgroundImage: const NetworkImage(
-                'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
+              backgroundColor: Colors.white24,
+              backgroundImage: NetworkImage(
+                adalahTraveler
+                    ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400'
+                    : 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
               ),
             ),
             const SizedBox(width: 10),
@@ -216,12 +542,14 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.namaTraveler,
-                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                    namaLawanBicara,
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    'Online • ${widget.lokasiTraveler}',
+                    adalahTraveler
+                        ? 'Pemesan Terverifikasi • Indonesia 🇮🇩'
+                        : 'Online • ${widget.lokasiTraveler}',
                     style: const TextStyle(fontSize: 10, color: Colors.white70),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -230,12 +558,31 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
             ),
           ],
         ),
-        backgroundColor: Colors.teal.shade800,
+        backgroundColor: adalahTraveler ? Colors.indigo.shade800 : Colors.teal.shade800,
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: 'Chat Langsung via WhatsApp',
+            tooltip: 'Ganti Peran Pengirim (Uji Coba/Demo)',
+            icon: const Icon(Icons.swap_horiz_rounded),
+            onPressed: () {
+              setState(() {
+                if (_peranAktif == 'PEMESAN') {
+                  _peranAktif = 'TRAVELER';
+                  _namaPengirimAktif = 'Dimas Pratama';
+                  _threadTerpilih = null; // Menuju inbox
+                } else {
+                  _peranAktif = 'PEMESAN';
+                  _namaPengirimAktif = 'Pemesan Jastip';
+                }
+              });
+              _tampilkanSnack(
+                'Sekarang Anda mengetik sebagai: ${_peranAktif == "TRAVELER" ? "Traveler (Dimas Pratama ✈️)" : "Pemesan (Indonesia 🇮🇩)"}',
+              );
+            },
+          ),
+          IconButton(
+            tooltip: 'Hubungi via WhatsApp',
             icon: const Icon(Icons.chat_bubble_outline_rounded),
             onPressed: _bukaWhatsAppTraveler,
           ),
@@ -243,12 +590,73 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
       ),
       body: Column(
         children: [
+          // Banner Status Peran & Keterikatan Transaksi (Poin 5)
+          if (!adalahTraveler && !punyaTransaksiAktif)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              color: Colors.red.shade50,
+              child: Row(
+                children: [
+                  Icon(Icons.lock_outline_rounded, color: Colors.red.shade800, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '⛔ Akses Chat Terkunci: Transaksi Belum Ada',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Pemesan HANYA bisa mengirim pesan jika telah memiliki transaksi pesanan jastip aktif. Silakan pesan barang terlebih dahulu.',
+                          style: TextStyle(fontSize: 10, color: Colors.black87),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              color: adalahTraveler ? Colors.indigo.shade50 : Colors.teal.shade50,
+              child: Row(
+                children: [
+                  Icon(
+                    adalahTraveler ? Icons.flight_takeoff : Icons.verified_user_rounded,
+                    size: 16,
+                    color: adalahTraveler ? Colors.indigo.shade800 : Colors.teal.shade800,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      adalahTraveler
+                          ? 'Membalas chat individual: $namaLawanBicara'
+                          : '✅ Terverifikasi: Diskusi aktif pesanan #${daftarPesananPemesan.first.idPesanan} (${daftarPesananPemesan.first.daftarBarang.first.namaBarang})',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: adalahTraveler ? Colors.indigo.shade900 : Colors.teal.shade900,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
-          // Banner Barang yang Dibicarakan (Jika ada)
+          // Banner Barang yang Dititip (Jika ada)
           if (widget.barang != null)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: Colors.teal.shade50,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              color: Colors.white,
               child: Row(
                 children: [
                   ClipRRect(
@@ -268,7 +676,7 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
                       children: [
                         Text(
                           widget.barang!.namaBarang,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -283,119 +691,179 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
               ),
             ),
 
-          // Daftar Pesan Chat Antara Pemesan & Traveler
+          // Daftar Obrolan Nyata Dua Arah dari Database Hive (Filter Per Pemesan)
           Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              itemCount: _daftarObrolan.length,
-              itemBuilder: (context, index) {
-                final pesan = _daftarObrolan[index];
-                final bool dariPemesan = pesan.adalahPengguna;
+            child: ValueListenableBuilder<Box>(
+              valueListenable: Hive.box(LayananBasisDataLokal.namaKotakChat).listenable(),
+              builder: (context, box, child) {
+                // Ambil pesan percakapan khusus untuk pemesan ini (Poin 5: Isolasi Obrolan)
+                List<ModelPesanChat> pesanList =
+                    LayananBasisDataLokal.ambilPesanChatUntukPemesan(targetIdPemesan);
 
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Row(
-                    mainAxisAlignment: dariPemesan ? MainAxisAlignment.end : MainAxisAlignment.start,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      if (!dariPemesan) ...[
-                        CircleAvatar(
-                          radius: 14,
-                          backgroundColor: Colors.teal.shade100,
-                          child: const Icon(Icons.person, size: 16, color: Colors.teal),
+                // Fallback jika belum ada pesan spesifik
+                if (pesanList.isEmpty) {
+                  pesanList = LayananBasisDataLokal.ambilSemuaPesanChat();
+                }
+
+                if (pesanList.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.forum_outlined, size: 48, color: Colors.grey.shade400),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Mulai Percakapan Langsung',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black54),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Kirim pesan atau gunakan template di bawah ini.',
+                          style: TextStyle(fontSize: 11, color: Colors.black45),
+                        ),
                       ],
-                      Flexible(
-                        child: Container(
-                          constraints: BoxConstraints(
-                            maxWidth: MediaQuery.of(context).size.width * 0.76,
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: dariPemesan ? Colors.teal.shade700 : Colors.white,
-                            borderRadius: BorderRadius.only(
-                              topLeft: const Radius.circular(14),
-                              topRight: const Radius.circular(14),
-                              bottomLeft: Radius.circular(dariPemesan ? 14 : 4),
-                              bottomRight: Radius.circular(dariPemesan ? 4 : 14),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  itemCount: pesanList.length,
+                  itemBuilder: (context, index) {
+                    final pesan = pesanList[index];
+                    final bool pesanDariSaya = pesan.pengirim == _peranAktif;
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        mainAxisAlignment:
+                            pesanDariSaya ? MainAxisAlignment.end : MainAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          if (!pesanDariSaya) ...[
+                            CircleAvatar(
+                              radius: 14,
+                              backgroundColor: Colors.grey.shade300,
+                              child: Icon(
+                                pesan.pengirim == 'TRAVELER' ? Icons.flight_takeoff : Icons.person,
+                                size: 14,
+                                color: Colors.black54,
+                              ),
                             ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.04),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: dariPemesan ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                dariPemesan ? '$_namaPemesan (Pemesan)' : 'Dimas Pratama (Traveler LN)',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: dariPemesan ? Colors.teal.shade100 : Colors.teal.shade800,
+                            const SizedBox(width: 6),
+                          ],
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: pesanDariSaya
+                                    ? (adalahTraveler ? Colors.indigo.shade700 : Colors.teal.shade800)
+                                    : Colors.white,
+                                borderRadius: BorderRadius.only(
+                                  topLeft: const Radius.circular(16),
+                                  topRight: const Radius.circular(16),
+                                  bottomLeft: Radius.circular(pesanDariSaya ? 16 : 4),
+                                  bottomRight: Radius.circular(pesanDariSaya ? 4 : 16),
                                 ),
+                                border: pesanDariSaya ? null : Border.all(color: Colors.grey.shade300),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.04),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                pesan.teks,
-                                style: TextStyle(
-                                  color: dariPemesan ? Colors.white : Colors.black87,
-                                  fontSize: 13,
-                                  height: 1.35,
-                                ),
+                              child: Column(
+                                crossAxisAlignment: pesanDariSaya
+                                    ? CrossAxisAlignment.end
+                                    : CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    pesan.namaPengirim,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: pesanDariSaya ? Colors.amberAccent : Colors.teal.shade900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    pesan.teks,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: pesanDariSaya ? Colors.white : Colors.black87,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${pesan.waktu.hour.toString().padLeft(2, '0')}:${pesan.waktu.minute.toString().padLeft(2, '0')}',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      color: pesanDariSaya ? Colors.white70 : Colors.black45,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
-                        ),
+                          if (pesanDariSaya) ...[
+                            const SizedBox(width: 6),
+                            CircleAvatar(
+                              radius: 14,
+                              backgroundColor: adalahTraveler ? Colors.indigo.shade100 : Colors.teal.shade100,
+                              child: Icon(
+                                adalahTraveler ? Icons.flight_takeoff : Icons.person,
+                                size: 14,
+                                color: adalahTraveler ? Colors.indigo.shade800 : Colors.teal.shade800,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                      if (dariPemesan) ...[
-                        const SizedBox(width: 8),
-                        CircleAvatar(
-                          radius: 14,
-                          backgroundColor: Colors.teal.shade800,
-                          child: const Icon(Icons.account_circle, size: 16, color: Colors.white),
-                        ),
-                      ],
-                    ],
-                  ),
+                    );
+                  },
                 );
               },
             ),
           ),
 
-          // Pilihan Pesan Cepat untuk Pemesan
-          Container(
-            height: 38,
-            margin: const EdgeInsets.only(bottom: 6),
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: _templatePesanPemesan.length,
-              itemBuilder: (context, index) {
-                final teks = _templatePesanPemesan[index];
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6.0),
-                  child: ActionChip(
-                    label: Text(teks, style: const TextStyle(fontSize: 11)),
-                    backgroundColor: Colors.white,
-                    side: BorderSide(color: Colors.teal.shade300),
-                    onPressed: () {
-                      _pesanController.text = teks;
-                    },
-                  ),
-                );
-              },
+          // Pilihan Cepat Template Pesan Sesuai Peran Aktif (Hanya jika chat terbuka)
+          if (adalahTraveler || punyaTransaksiAktif)
+            Container(
+              height: 36,
+              margin: const EdgeInsets.only(bottom: 6),
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: adalahTraveler ? _templatePesanTraveler.length : _templatePesanPemesan.length,
+                itemBuilder: (context, index) {
+                  final template = adalahTraveler ? _templatePesanTraveler[index] : _templatePesanPemesan[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ActionChip(
+                      backgroundColor: Colors.white,
+                      side: BorderSide(color: Colors.grey.shade300),
+                      label: Text(
+                        template,
+                        style: const TextStyle(fontSize: 11, color: Colors.black87),
+                      ),
+                      onPressed: () => _kirimPesanNyata(
+                        template,
+                        targetIdPemesan: targetIdPemesan,
+                        targetNamaPemesan: namaLawanBicara,
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
 
-          // Kotak Input Teks Obrolan
+          // Input Bar Pengiriman Pesan
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: Colors.white,
               boxShadow: [
@@ -412,28 +880,67 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
                   Expanded(
                     child: TextField(
                       controller: _pesanController,
+                      enabled: adalahTraveler || punyaTransaksiAktif,
                       textInputAction: TextInputAction.send,
-                      onSubmitted: (val) => _kirimPesanLangsung(val),
+                      onSubmitted: (val) => _kirimPesanNyata(
+                        val,
+                        targetIdPemesan: targetIdPemesan,
+                        targetNamaPemesan: namaLawanBicara,
+                      ),
                       decoration: InputDecoration(
-                        hintText: 'Ketik pesan titipan untuk ${widget.namaTraveler}...',
-                        hintStyle: const TextStyle(fontSize: 12.5),
+                        hintText: !adalahTraveler && !punyaTransaksiAktif
+                            ? 'Chat terkunci (Belum ada pesanan aktif)...'
+                            : (adalahTraveler
+                                ? 'Balas pesan $namaLawanBicara...'
+                                : 'Ketik pesan langsung ke Dimas...'),
+                        hintStyle: const TextStyle(fontSize: 12, color: Colors.black45),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        filled: true,
+                        fillColor: const Color(0xFFF7F9FC),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide(color: Colors.teal.shade300),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
                         ),
-                        filled: true,
-                        fillColor: const Color(0xFFF9FAFB),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        disabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide(color: Colors.red.shade200),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide(
+                            color: adalahTraveler ? Colors.indigo.shade800 : Colors.teal.shade800,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  CircleAvatar(
-                    backgroundColor: Colors.teal.shade700,
-                    radius: 20,
+                  Container(
+                    decoration: BoxDecoration(
+                      color: (!adalahTraveler && !punyaTransaksiAktif)
+                          ? Colors.grey.shade400
+                          : (adalahTraveler ? Colors.indigo.shade800 : Colors.teal.shade800),
+                      shape: BoxShape.circle,
+                    ),
                     child: IconButton(
-                      icon: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
-                      onPressed: () => _kirimPesanLangsung(_pesanController.text),
+                      icon: Icon(
+                        (!adalahTraveler && !punyaTransaksiAktif) ? Icons.lock : Icons.send_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      onPressed: (!adalahTraveler && !punyaTransaksiAktif)
+                          ? () => _tampilkanSnack(
+                              'Pesan belum dapat dikirim. Buat pesanan jastip terlebih dahulu untuk membuka jalur komunikasi dengan Traveler.',
+                            )
+                          : () => _kirimPesanNyata(
+                              _pesanController.text,
+                              targetIdPemesan: targetIdPemesan,
+                              targetNamaPemesan: namaLawanBicara,
+                            ),
                     ),
                   ),
                 ],

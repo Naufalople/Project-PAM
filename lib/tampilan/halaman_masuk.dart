@@ -8,7 +8,9 @@ import 'halaman_utama.dart';
 
 // Halaman Masuk (Login) dengan Password Enkripsi SHA-256 & Biometrik Sidik Jari
 class HalamanMasuk extends StatefulWidget {
-  const HalamanMasuk({super.key});
+  final bool pesanSesiKedaluwarsa;
+
+  const HalamanMasuk({super.key, this.pesanSesiKedaluwarsa = false});
 
   @override
   State<HalamanMasuk> createState() => _HalamanMasukState();
@@ -203,6 +205,33 @@ class _HalamanMasukState extends State<HalamanMasuk> {
                             color: Colors.black87,
                           ),
                         ),
+                        if (widget.pesanSesiKedaluwarsa) ...[
+                          const SizedBox(height: 14),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.amber.shade300),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.lock_clock_outlined, color: Colors.amber.shade900, size: 24),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Sesi telah kedaluwarsa. Demi keamanan akun Anda, silakan masuk kembali.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.amber.shade900,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 20),
 
                         // Input Email
@@ -324,36 +353,62 @@ class _HalamanMasukState extends State<HalamanMasuk> {
                 ),
                 const SizedBox(height: 16),
 
-                // Tombol Uji Coba Cepat Akun DB (Pemesan)
+                // Tombol Uji Coba Cepat Akun DB (Pemesan & Traveler)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.grey.shade200),
                   ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.teal.shade800,
-                            side: BorderSide(color: Colors.teal.shade200),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      const Text(
+                        'Pilihan Cepat Akun Uji Coba Sesuai Peran:',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black54),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.teal.shade800,
+                                side: BorderSide(color: Colors.teal.shade300),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _emailController.text = 'pemesan@jastipgo.com';
+                                  _passwordController.text = 'password123';
+                                });
+                              },
+                              icon: const Icon(Icons.person, size: 14),
+                              label: const Text('Akun Pemesan', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ),
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _emailController.text = 'pemesan@jastipgo.com';
-                              _passwordController.text = 'password123';
-                            });
-                          },
-                          icon: const Icon(Icons.flash_on_rounded, size: 16, color: Colors.amber),
-                          label: const Text(
-                            'Gunakan Akun Uji Coba (pemesan@jastipgo.com)',
-                            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.indigo.shade800,
+                                side: BorderSide(color: Colors.indigo.shade300),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _emailController.text = 'traveler.dimas@jastipgo.com';
+                                  _passwordController.text = 'password123';
+                                });
+                              },
+                              icon: const Icon(Icons.flight_takeoff, size: 14),
+                              label: const Text('Akun Traveler', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
                     ],
                   ),

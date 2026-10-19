@@ -1,4 +1,7 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Layanan Konversi Waktu Dunia (WIB, WITA, WIT, London) dan Kurs Mata Uang Asing
 class LayananKonversi {
@@ -47,16 +50,86 @@ class LayananKonversi {
   // 2. FITUR KONVERSI KURS MATA UANG (VALAS KE RUPIAH)
   // ==========================================
 
-  // Nilai tukar patokan standar (Kurs Referensi Bank)
+  static const String _kunciCacheKurs = 'cache_kurs_valas_ke_rupiah';
+  static const String _kunciWaktuUpdateKurs = 'waktu_terakhir_update_kurs';
+  static String? waktuPembaruanTerakhir;
+  static bool statusOnlineTerhubung = false;
+
+  // Nilai tukar patokan (diperbarui otomatis dari REST API open.er-api.com)
   static final Map<String, double> nilaiKursKeRupiah = {
     'IDR': 1.0,
-    'JPY': 112.5, // 1 Yen = Rp 112.5
+    'JPY': 114.3, // 1 Yen = Rp 114.3
     'KRW': 11.8, // 1 Won = Rp 11.8
-    'GBP': 20600.0, // 1 Pound London = Rp 20.600
-    'USD': 15800.0, // 1 Dollar AS = Rp 15.800
-    'SGD': 11950.0, // 1 Dollar Singapura = Rp 11.950
+    'GBP': 24060.0, // 1 Pound London = Rp 24.060
+    'USD': 18052.0, // 1 Dollar AS = Rp 18.052
+    'SGD': 14109.0, // 1 Dollar Singapura = Rp 14.109
     'CNY': 2230.0, // 1 Yuan China = Rp 2.230
   };
+
+  // Mengambil dan memperbarui data kurs mata uang asing secara live dari REST API Publik (open.er-api.com)
+  static Future<bool> perbaruiKursDariApi() async {
+    const String urlApi = 'https://open.er-api.com/v6/latest/USD';
+    try {
+      final response = await http.get(Uri.parse(urlApi)).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        if (data['result'] == 'success' && data['rates'] != null) {
+          final Map<String, dynamic> rates = data['rates'];
+          final double idrPerUsd = (rates['IDR'] as num?)?.toDouble() ?? 15800.0;
+
+          nilaiKursKeRupiah['IDR'] = 1.0;
+          nilaiKursKeRupiah['USD'] = idrPerUsd;
+
+          if (rates['JPY'] != null && (rates['JPY'] as num) > 0) {
+            nilaiKursKeRupiah['JPY'] = idrPerUsd / (rates['JPY'] as num).toDouble();
+          }
+          if (rates['KRW'] != null && (rates['KRW'] as num) > 0) {
+            nilaiKursKeRupiah['KRW'] = idrPerUsd / (rates['KRW'] as num).toDouble();
+          }
+          if (rates['GBP'] != null && (rates['GBP'] as num) > 0) {
+            nilaiKursKeRupiah['GBP'] = idrPerUsd / (rates['GBP'] as num).toDouble();
+          }
+          if (rates['SGD'] != null && (rates['SGD'] as num) > 0) {
+            nilaiKursKeRupiah['SGD'] = idrPerUsd / (rates['SGD'] as num).toDouble();
+          }
+          if (rates['CNY'] != null && (rates['CNY'] as num) > 0) {
+            nilaiKursKeRupiah['CNY'] = idrPerUsd / (rates['CNY'] as num).toDouble();
+          }
+
+          statusOnlineTerhubung = true;
+          waktuPembaruanTerakhir = DateFormat('dd MMM yyyy, HH:mm:ss').format(DateTime.now());
+
+          // Simpan ke SharedPreferences sebagai cache offline
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_kunciCacheKurs, jsonEncode(nilaiKursKeRupiah));
+          await prefs.setString(_kunciWaktuUpdateKurs, waktuPembaruanTerakhir!);
+
+          return true;
+        }
+      }
+    } catch (_) {
+      // Fallback offline: muat dari cache lokal jika pernah disimpan sebelumnya
+      await _muatCacheKursLokal();
+      statusOnlineTerhubung = false;
+    }
+    return false;
+  }
+
+  static Future<void> _muatCacheKursLokal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? cache = prefs.getString(_kunciCacheKurs);
+      waktuPembaruanTerakhir = prefs.getString(_kunciWaktuUpdateKurs);
+      if (cache != null && cache.isNotEmpty) {
+        final Map<String, dynamic> decoded = jsonDecode(cache);
+        decoded.forEach((key, val) {
+          if (val is num) {
+            nilaiKursKeRupiah[key] = val.toDouble();
+          }
+        });
+      }
+    } catch (_) {}
+  }
 
   // Konversi dari mata uang asing ke Rupiah (IDR)
   static int konversiKeRupiah(double jumlahMataUangAsing, String kodeMataUang) {

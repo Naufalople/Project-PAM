@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../model/model_pengguna.dart';
 
 // Layanan Otentikasi Pengguna: Login, Registrasi, Enkripsi SHA-256, Sesi,
-// serta Penyimpanan Basis Data Akun (Pemesan & Pembeli/Traveler) Anti-Hilang
+// serta Penyimpanan Basis Data Akun (Pemesan & Pembeli/Traveler) Online & Lokal
 class LayananOtentikasi {
   static const String _kunciToken = 'token_pengguna';
   static const String _kunciIdPengguna = 'id_pengguna';
@@ -17,6 +18,12 @@ class LayananOtentikasi {
   static const String _kunciLokasiPengguna = 'lokasi_pengguna';
   static const String _kunciDaftarAkun = 'daftar_akun_tersimpan';
   static const String _kunciEmailTerakhir = 'email_terakhir_masuk';
+  static const String _kunciWaktuMasukBackground = 'waktu_masuk_background';
+  static const int batasMenitTimeout = 15;
+
+  // Endpoint REST API Publik untuk Sinkronisasi Akun Lintas Perangkat
+  static const String _urlOnlineApi = 'https://api.restful-api.dev/objects';
+  static const String _idRegistriOnline = 'ff808181a09d98f701a153a07864177d';
 
   // Fungsi enkripsi password menggunakan algoritma SHA-256 (Non-Firebase)
   static String enkripsiPassword(String passwordTeksBiasa) {
@@ -141,6 +148,115 @@ class LayananOtentikasi {
     }
   }
 
+  // ========================================================
+  // SINKRONISASI DATABASE ONLINE (REST API LINTAS PERANGKAT)
+  // ========================================================
+
+  // Sinkronisasi akun terenkripsi (SHA-256) ke database online REST API
+  static Future<void> _sinkronkanKeDatabaseOnline(ModelPengguna akun) async {
+    try {
+      // 1. Simpan akun individual ke endpoint REST API
+      await http.post(
+        Uri.parse(_urlOnlineApi),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'name': 'JASTIPGO_USER_${akun.email.toLowerCase()}',
+          'data': {
+            'id': akun.id,
+            'nama': akun.nama,
+            'email': akun.email,
+            'passwordHash': akun.passwordHash,
+            'nomorTelepon': akun.nomorTelepon,
+            'fotoProfil': akun.fotoProfil,
+            'peran': akun.peran,
+            'lokasi': akun.lokasi,
+            'terdaftarPada': DateTime.now().toIso8601String(),
+          },
+        }),
+      ).timeout(const Duration(seconds: 4));
+
+      // 2. Perbarui registri pengguna global online agar dapat divalidasi dari perangkat lain
+      final resGet = await http
+          .get(Uri.parse('$_urlOnlineApi/$_idRegistriOnline'))
+          .timeout(const Duration(seconds: 4));
+
+      if (resGet.statusCode == 200) {
+        final Map<String, dynamic> body = jsonDecode(resGet.body);
+        final Map<String, dynamic> data =
+            body['data'] is Map<String, dynamic> ? Map<String, dynamic>.from(body['data']) : {};
+        List<dynamic> users = data['users'] is List ? List<dynamic>.from(data['users']) : [];
+
+        // Hapus duplikat akun lama bila ada
+        users.removeWhere((u) {
+          if (u is Map) return u['email']?.toString().toLowerCase() == akun.email.toLowerCase();
+          return false;
+        });
+
+        users.add({
+          'id': akun.id,
+          'nama': akun.nama,
+          'email': akun.email,
+          'passwordHash': akun.passwordHash,
+          'nomorTelepon': akun.nomorTelepon,
+          'fotoProfil': akun.fotoProfil,
+          'peran': akun.peran,
+          'lokasi': akun.lokasi,
+        });
+
+        await http.put(
+          Uri.parse('$_urlOnlineApi/$_idRegistriOnline'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'name': 'JASTIPGO_GLOBAL_USERS',
+            'data': {'users': users},
+          }),
+        ).timeout(const Duration(seconds: 4));
+      }
+    } catch (_) {
+      // Toleransi offline: jika tidak ada koneksi internet, akun tetap aman di penyimpanan lokal
+    }
+  }
+
+  // Validasi kredensial login langsung ke REST API Online secara real-time
+  static Future<ModelPengguna?> _validasiLoginOnline(String emailInput, String hashInput) async {
+    try {
+      final res = await http
+          .get(Uri.parse('$_urlOnlineApi/$_idRegistriOnline'))
+          .timeout(const Duration(seconds: 4));
+
+      if (res.statusCode == 200) {
+        final Map<String, dynamic> body = jsonDecode(res.body);
+        if (body['data'] != null && body['data']['users'] != null) {
+          final List<dynamic> users = body['data']['users'];
+          for (var item in users) {
+            if (item is Map) {
+              final String itemEmail = item['email']?.toString().toLowerCase() ?? '';
+              final String itemHash = item['passwordHash']?.toString() ?? '';
+              if (itemEmail == emailInput && itemHash == hashInput) {
+                return ModelPengguna(
+                  id: item['id'] is int
+                      ? item['id']
+                      : int.tryParse(item['id']?.toString() ?? '') ?? 999,
+                  nama: item['nama']?.toString() ?? 'Pengguna',
+                  email: item['email']?.toString() ?? emailInput,
+                  passwordHash: itemHash,
+                  nomorTelepon: item['nomorTelepon']?.toString() ?? '-',
+                  fotoProfil: item['fotoProfil']?.toString() ??
+                      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400',
+                  peran: item['peran']?.toString() ?? 'PEMESAN',
+                  lokasi: item['lokasi']?.toString() ?? 'Indonesia 🇮🇩',
+                );
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // Offline fallback
+    }
+    return null;
+  }
+
   // Registrasi Akun Baru (Bisa Pemesan atau Pembeli/Traveler)
   static Future<bool> daftarkanPenggunaBaru({
     required String nama,
@@ -153,7 +269,7 @@ class LayananOtentikasi {
     final prefs = await SharedPreferences.getInstance();
     final List<ModelPengguna> semuaAkun = await ambilSemuaAkun();
 
-    // Cek apakah email sudah terdaftar
+    // Cek apakah email sudah terdaftar secara lokal
     final bool emailSudahAda = semuaAkun.any(
       (akun) => akun.email.toLowerCase() == email.trim().toLowerCase(),
     );
@@ -180,29 +296,51 @@ class LayananOtentikasi {
         semuaAkun.map((akun) => akun.keJson()).toList();
     final stringJson = jsonEncode(daftarJson);
 
-    // 1. Simpan ke Database SharedPreferences
+    // 1. Simpan ke Database SharedPreferences Lokal
     await prefs.setString(_kunciDaftarAkun, stringJson);
 
     // 2. Simpan ke Cadangan File Eksternal (anti-hilang)
     await _simpanCadanganEksternal(stringJson);
 
-    // 3. Langsung aktifkan sesi untuk akun yang baru didaftarkan ini
+    // 3. Sinkronkan Kredensial Terenkripsi ke Database Online / REST API Backend
+    _sinkronkanKeDatabaseOnline(akunBaru);
+
+    // 4. Langsung aktifkan sesi untuk akun yang baru didaftarkan ini
     await _simpanSesi(akunBaru);
     await prefs.setString(_kunciEmailTerakhir, akunBaru.email);
 
     return true;
   }
 
-  // Proses Login Pengguna
+  // Proses Login Pengguna (Online REST API dengan Fallback Database Lokal)
   static Future<ModelPengguna?> prosesMasuk({
     required String email,
     required String password,
   }) async {
-    final List<ModelPengguna> semuaAkun = await ambilSemuaAkun();
     final String hashInput = enkripsiPassword(password);
     final String emailInput = email.trim().toLowerCase();
 
-    for (var akun in semuaAkun) {
+    // 1. Validasi langsung ke Database Online / REST API secara Real-Time
+    final onlineAkun = await _validasiLoginOnline(emailInput, hashInput);
+    if (onlineAkun != null) {
+      // Simpan akun online ke lokal jika belum ada di perangkat ini
+      final List<ModelPengguna> semuaAkun = await ambilSemuaAkun();
+      if (!semuaAkun.any((a) => a.email.toLowerCase() == emailInput)) {
+        semuaAkun.add(onlineAkun);
+        final prefs = await SharedPreferences.getInstance();
+        final stringJson = jsonEncode(semuaAkun.map((a) => a.keJson()).toList());
+        await prefs.setString(_kunciDaftarAkun, stringJson);
+        await _simpanCadanganEksternal(stringJson);
+      }
+      await _simpanSesi(onlineAkun);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kunciEmailTerakhir, onlineAkun.email);
+      return onlineAkun;
+    }
+
+    // 2. Fallback: Validasi pada Database Lokal (Offline Mode / Akun Bawaan)
+    final List<ModelPengguna> semuaAkunLokal = await ambilSemuaAkun();
+    for (var akun in semuaAkunLokal) {
       if (akun.email.toLowerCase() == emailInput && akun.passwordHash == hashInput) {
         await _simpanSesi(akun);
         final prefs = await SharedPreferences.getInstance();
@@ -211,6 +349,54 @@ class LayananOtentikasi {
       }
     }
     return null;
+  }
+
+  // ========================================================
+  // MANAJEMEN SESI & TIMEOUT BACKGROUND (KETENTUAN POIN 1)
+  // ========================================================
+
+  // Catat waktu aplikasi diminimalkan / masuk background (paused / inactive)
+  static Future<void> catatWaktuMasukBackground() async {
+    final bool sedangMasuk = await cekApakahSudahMasuk();
+    if (sedangMasuk) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_kunciWaktuMasukBackground, DateTime.now().millisecondsSinceEpoch);
+    }
+  }
+
+  // Hapus catatan waktu background saat aplikasi kembali aktif dalam kurun waktu aman
+  static Future<void> hapusWaktuMasukBackground() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kunciWaktuMasukBackground);
+  }
+
+  // Periksa apakah sesi telah kedaluwarsa setelah berada di background >= 15 menit
+  static Future<bool> apakahSesiKedaluwarsa() async {
+    final bool sedangMasuk = await cekApakahSudahMasuk();
+    if (!sedangMasuk) return false;
+
+    final prefs = await SharedPreferences.getInstance();
+    final int? waktuLatar = prefs.getInt(_kunciWaktuMasukBackground);
+    if (waktuLatar == null) return false;
+
+    final int selisihMilidetik = DateTime.now().millisecondsSinceEpoch - waktuLatar;
+    final int batasMilidetik = batasMenitTimeout * 60 * 1000;
+
+    if (selisihMilidetik >= batasMilidetik) {
+      return true;
+    } else {
+      // Masih dalam batas waktu aman (< 15 menit), reset catatan waktu latar
+      await hapusWaktuMasukBackground();
+      return false;
+    }
+  }
+
+  // Tangani Cold Start: Saat aplikasi dimatikan/dibersihkan dari recent apps lalu dibuka kembali,
+  // wajibkan login ulang sesuai ketentuan poin 1
+  static Future<void> tanganiColdStart() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kunciToken);
+    await prefs.remove(_kunciWaktuMasukBackground);
   }
 
   // Masuk Cepat dengan Sensor Sidik Jari (Biometrik)
@@ -245,6 +431,20 @@ class LayananOtentikasi {
 
     await _simpanSesi(targetAkun);
     return targetAkun;
+  }
+
+  // Ganti akun aktif secara instan (untuk kemudahan pengujian peran Pemesan vs Traveler)
+  static Future<ModelPengguna?> gantiAkunAktif(String email) async {
+    final List<ModelPengguna> semuaAkun = await ambilSemuaAkun();
+    for (var akun in semuaAkun) {
+      if (akun.email.toLowerCase() == email.trim().toLowerCase()) {
+        await _simpanSesi(akun);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_kunciEmailTerakhir, akun.email);
+        return akun;
+      }
+    }
+    return null;
   }
 
   // Simpan data sesi aktif
@@ -348,6 +548,40 @@ class LayananOtentikasi {
           fotoProfil: semuaAkun[i].fotoProfil,
           peran: semuaAkun[i].peran,
           lokasi: lokasi ?? semuaAkun[i].lokasi,
+        );
+        break;
+      }
+    }
+
+    final List<Map<String, dynamic>> daftarJson =
+        semuaAkun.map((akun) => akun.keJson()).toList();
+    final stringJson = jsonEncode(daftarJson);
+
+    await prefs.setString(_kunciDaftarAkun, stringJson);
+    await _simpanCadanganEksternal(stringJson);
+  }
+
+  // Perbarui foto profil pengguna aktif (Poin 3: Fitur Ubah Foto Profil Kustom)
+  static Future<void> perbaruiFotoProfilAktif(String pathAtauUrlFoto) async {
+    final prefs = await SharedPreferences.getInstance();
+    final int? id = prefs.getInt(_kunciIdPengguna);
+    final String? email = prefs.getString(_kunciEmailPengguna);
+
+    await prefs.setString(_kunciFotoPengguna, pathAtauUrlFoto.trim());
+
+    final List<ModelPengguna> semuaAkun = await ambilSemuaAkun();
+    for (int i = 0; i < semuaAkun.length; i++) {
+      if ((id != null && semuaAkun[i].id == id) ||
+          (email != null && semuaAkun[i].email.toLowerCase() == email.toLowerCase())) {
+        semuaAkun[i] = ModelPengguna(
+          id: semuaAkun[i].id,
+          nama: semuaAkun[i].nama,
+          email: semuaAkun[i].email,
+          passwordHash: semuaAkun[i].passwordHash,
+          nomorTelepon: semuaAkun[i].nomorTelepon,
+          fotoProfil: pathAtauUrlFoto.trim(),
+          peran: semuaAkun[i].peran,
+          lokasi: semuaAkun[i].lokasi,
         );
         break;
       }

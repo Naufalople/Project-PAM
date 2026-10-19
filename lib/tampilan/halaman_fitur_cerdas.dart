@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'halaman_pemindai_ai.dart';
+import '../layanan/layanan_otentikasi.dart';
+import 'halaman_rekomendasi_ai.dart';
 import 'halaman_chatbot.dart';
 import 'halaman_shake_promo.dart';
 import 'halaman_jam_dunia.dart';
@@ -9,101 +10,216 @@ import 'halaman_peta_lokasi.dart';
 import 'halaman_sertifikat_blockchain.dart';
 import 'halaman_chat_traveler.dart';
 import 'halaman_status_pesanan.dart';
+import 'halaman_kelola_pesanan_traveler.dart';
 
-// Halaman Hub Fitur Cerdas: Pusat Navigasi Seluruh Fitur Khusus Tugas Akhir
-class HalamanFiturCerdas extends StatelessWidget {
+// Halaman Hub Fitur Cerdas: Pusat Navigasi Berbasis Peran (RBAC Pemesan vs Traveler)
+class HalamanFiturCerdas extends StatefulWidget {
   const HalamanFiturCerdas({super.key});
 
   @override
+  State<HalamanFiturCerdas> createState() => _HalamanFiturCerdasState();
+}
+
+class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
+  String _peranAktif = 'PEMESAN';
+  bool _sedangMemuat = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _muatPeran();
+  }
+
+  Future<void> _muatPeran() async {
+    final peran = await LayananOtentikasi.ambilPeranAktif();
+    if (!mounted) return;
+    setState(() {
+      _peranAktif = peran;
+      _sedangMemuat = false;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final List<Map<String, dynamic>> menuFitur = [
-      {
-        'judul': 'AI Lens Scanner',
-        'subjudul': 'Pindai foto barang impian ala Google Lens',
-        'ikon': Icons.camera_enhance_rounded,
-        'warna': Colors.purple,
-        'halaman': const HalamanPemindaiAi(),
-        'tag': 'AI Vision',
-      },
-      {
-        'judul': 'Chatbot Asisten Jastip',
-        'subjudul': 'Tanya jawab aturan bea cukai & rekomendasi belanja',
-        'ikon': Icons.smart_toy_rounded,
-        'warna': Colors.teal,
-        'halaman': const HalamanChatbot(),
-        'tag': 'LLM AI',
-      },
-      {
-        'judul': 'Shake & Win Promo',
-        'subjudul': 'Goyangkan HP untuk mengocok diskon jastip',
-        'ikon': Icons.vibration_rounded,
-        'warna': Colors.amber.shade800,
-        'halaman': const HalamanShakePromo(),
-        'tag': 'Sensor Gerak',
-      },
-      {
-        'judul': 'Zona Waktu Dunia',
-        'subjudul': 'Pantau jam London, Tokyo, Seoul, WIB, WITA, WIT',
-        'ikon': Icons.schedule_rounded,
-        'warna': Colors.blue.shade700,
-        'halaman': const HalamanJamDunia(),
-        'tag': 'Konversi Waktu',
-      },
-      {
-        'judul': 'Kalkulator Kurs Valas',
-        'subjudul': 'Konversi JPY, KRW, GBP, USD, SGD ke Rupiah',
-        'ikon': Icons.currency_exchange_rounded,
-        'warna': Colors.green.shade700,
-        'halaman': const HalamanKalkulatorKurs(),
-        'tag': 'Mata Uang',
-      },
-      {
-        'judul': 'Mini Game Koper Jastip',
-        'subjudul': 'Kuis tebak harga barang untuk bonus koin jastip',
-        'ikon': Icons.videogame_asset_rounded,
-        'warna': Colors.indigo.shade700,
-        'halaman': const HalamanMiniGame(),
-        'tag': 'Mini Game',
-      },
-      {
-        'judul': 'Peta & Titik Temu LBS',
-        'subjudul': 'Cari pos serah terima barang COD terdekat via GPS',
-        'ikon': Icons.location_on_rounded,
-        'warna': Colors.redAccent.shade700,
-        'halaman': const HalamanPetaLokasi(),
-        'tag': 'LBS / GPS',
-      },
-      {
-        'judul': 'Sertifikat Blockchain',
-        'subjudul': 'Verifikasi keaslian struk belanja berantai SHA-256',
-        'ikon': Icons.link_rounded,
-        'warna': Colors.blueGrey.shade800,
-        'halaman': const HalamanSertifikatBlockchain(),
-        'tag': 'Web3 Ledger',
-      },
-      {
-        'judul': 'Chat dengan Traveler',
-        'subjudul': 'Ruang diskusi dan negosiasi langsung antar pengguna',
-        'ikon': Icons.forum_rounded,
-        'warna': Colors.teal.shade600,
-        'halaman': const HalamanChatTraveler(),
-        'tag': 'Komunikasi',
-      },
-      {
-        'judul': 'Pelacak Pesanan & Rekber Escrow',
-        'subjudul': 'Pantau siklus titipan, proteksi dana rekber, & LBS',
-        'ikon': Icons.local_shipping_rounded,
-        'warna': Colors.deepOrange.shade700,
-        'halaman': const HalamanStatusPesanan(),
-        'tag': 'Alur Bisnis',
-      },
-    ];
+    if (_sedangMemuat) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Pusat Fitur Cerdas'),
+          backgroundColor: Colors.teal.shade800,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final bool adalahTraveler = _peranAktif == 'TRAVELER';
+
+    // Daftar menu fitur yang disesuaikan secara dinamis berdasarkan RBAC
+    final List<Map<String, dynamic>> menuFitur = [];
+
+    if (adalahTraveler) {
+      // ==========================================
+      // FITUR KHUSUS SISI TRAVELER (JASTIPER)
+      // ==========================================
+      menuFitur.addAll([
+        {
+          'judul': 'Kelola Pesanan Masuk (Traveler)',
+          'subjudul': 'ACC pesanan titipan pemesan, konfirmasi belanja LN, & mendarat',
+          'ikon': Icons.flight_takeoff_rounded,
+          'warna': Colors.indigo.shade700,
+          'halaman': const HalamanKelolaPesananTraveler(),
+          'tag': 'Sisi Traveler',
+        },
+        {
+          'judul': 'Chat Inbox Pemesan',
+          'subjudul': 'Inbox percakapan masuk dari berbagai pemesan titipan',
+          'ikon': Icons.forum_rounded,
+          'warna': Colors.teal.shade600,
+          'halaman': const HalamanChatTraveler(),
+          'tag': 'Multi-Chat',
+        },
+        {
+          'judul': 'Rekomendasi Cerdas AI (Riset Pasar)',
+          'subjudul': 'Pantau barang terlaris dan analisis tren pembelian untuk jastip',
+          'ikon': Icons.auto_awesome_rounded,
+          'warna': Colors.purple,
+          'halaman': const HalamanRekomendasiAi(),
+          'tag': 'AI Engine',
+        },
+        {
+          'judul': 'Chatbot Regulasi Bea Cukai',
+          'subjudul': 'Konsultasi batasan koper USD 500 & aturan IMEI bandara',
+          'ikon': Icons.smart_toy_rounded,
+          'warna': Colors.teal,
+          'halaman': const HalamanChatbot(),
+          'tag': 'LLM AI',
+        },
+        {
+          'judul': 'Kalkulator Kurs Valas',
+          'subjudul': 'Konversi JPY, KRW, GBP, USD, SGD ke Rupiah secara live',
+          'ikon': Icons.currency_exchange_rounded,
+          'warna': Colors.green.shade700,
+          'halaman': const HalamanKalkulatorKurs(),
+          'tag': 'Mata Uang',
+        },
+        {
+          'judul': 'Zona Waktu Dunia',
+          'subjudul': 'Pantau jam London, Tokyo, Seoul, WIB, WITA, WIT',
+          'ikon': Icons.schedule_rounded,
+          'warna': Colors.blue.shade700,
+          'halaman': const HalamanJamDunia(),
+          'tag': 'Waktu Toko',
+        },
+        {
+          'judul': 'Peta & Titik Temu LBS',
+          'subjudul': 'Tentukan pos serah terima barang COD dengan pemesan via GPS',
+          'ikon': Icons.location_on_rounded,
+          'warna': Colors.redAccent.shade700,
+          'halaman': const HalamanPetaLokasi(),
+          'tag': 'LBS / GPS',
+        },
+        {
+          'judul': 'Sertifikat Blockchain',
+          'subjudul': 'Enkripsi struk belanja resmi ke ledger SHA-256 anti-palsu',
+          'ikon': Icons.link_rounded,
+          'warna': Colors.blueGrey.shade800,
+          'halaman': const HalamanSertifikatBlockchain(),
+          'tag': 'Web3 Ledger',
+        },
+      ]);
+    } else {
+      // ==========================================
+      // FITUR KHUSUS SISI PEMESAN (REQUESTER)
+      // ==========================================
+      menuFitur.addAll([
+        {
+          'judul': 'Pelacakan Pesanan & Rekber (Pemesan)',
+          'subjudul': 'Pantau siklus barang, proteksi rekber, & konfirmasi terima',
+          'ikon': Icons.local_shipping_rounded,
+          'warna': Colors.deepOrange.shade700,
+          'halaman': const HalamanStatusPesanan(),
+          'tag': 'Sisi Pemesan',
+        },
+        {
+          'judul': 'Chat Langsung dengan Traveler',
+          'subjudul': 'Hubungi Traveler Dimas untuk konsultasi titipan aktif Anda',
+          'ikon': Icons.forum_rounded,
+          'warna': Colors.teal.shade600,
+          'halaman': const HalamanChatTraveler(),
+          'tag': 'Pesan Nyata',
+        },
+        {
+          'judul': 'Rekomendasi Cerdas AI',
+          'subjudul': 'Sistem rekomendasi berbasis volume transaksi & kemiripan produk',
+          'ikon': Icons.auto_awesome_rounded,
+          'warna': Colors.purple,
+          'halaman': const HalamanRekomendasiAi(),
+          'tag': 'AI Engine',
+        },
+        {
+          'judul': 'Chatbot Asisten Jastip',
+          'subjudul': 'Tanya jawab aturan bea cukai & rekomendasi belanja',
+          'ikon': Icons.smart_toy_rounded,
+          'warna': Colors.teal,
+          'halaman': const HalamanChatbot(),
+          'tag': 'LLM AI',
+        },
+        {
+          'judul': 'Shake & Win Promo',
+          'subjudul': 'Goyangkan HP untuk mengocok diskon ongkos jastip',
+          'ikon': Icons.vibration_rounded,
+          'warna': Colors.amber.shade800,
+          'halaman': const HalamanShakePromo(),
+          'tag': 'Sensor Gerak',
+        },
+        {
+          'judul': 'Mini Game Koper Jastip',
+          'subjudul': 'Kuis tebak harga barang untuk bonus diskon jastip',
+          'ikon': Icons.videogame_asset_rounded,
+          'warna': Colors.indigo.shade700,
+          'halaman': const HalamanMiniGame(),
+          'tag': 'Mini Game',
+        },
+        {
+          'judul': 'Zona Waktu Dunia',
+          'subjudul': 'Pantau jam London, Tokyo, Seoul, WIB, WITA, WIT',
+          'ikon': Icons.schedule_rounded,
+          'warna': Colors.blue.shade700,
+          'halaman': const HalamanJamDunia(),
+          'tag': 'Konversi Waktu',
+        },
+        {
+          'judul': 'Kalkulator Kurs Valas',
+          'subjudul': 'Konversi JPY, KRW, GBP, USD, SGD ke Rupiah secara live',
+          'ikon': Icons.currency_exchange_rounded,
+          'warna': Colors.green.shade700,
+          'halaman': const HalamanKalkulatorKurs(),
+          'tag': 'Mata Uang',
+        },
+        {
+          'judul': 'Peta & Titik Temu LBS',
+          'subjudul': 'Cari pos serah terima barang COD terdekat via GPS Google Maps',
+          'ikon': Icons.location_on_rounded,
+          'warna': Colors.redAccent.shade700,
+          'halaman': const HalamanPetaLokasi(),
+          'tag': 'LBS / GPS',
+        },
+        {
+          'judul': 'Sertifikat Blockchain',
+          'subjudul': 'Verifikasi keaslian struk belanja berantai SHA-256',
+          'ikon': Icons.link_rounded,
+          'warna': Colors.blueGrey.shade800,
+          'halaman': const HalamanSertifikatBlockchain(),
+          'tag': 'Web3 Ledger',
+        },
+      ]);
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
       appBar: AppBar(
-        title: const Text('Pusat Fitur Cerdas'),
-        backgroundColor: Colors.teal.shade800,
+        title: Text(adalahTraveler ? 'Fitur Traveler Luar Negeri' : 'Pusat Fitur Cerdas'),
+        backgroundColor: adalahTraveler ? Colors.indigo.shade800 : Colors.teal.shade800,
         foregroundColor: Colors.white,
         elevation: 0,
       ),
@@ -112,14 +228,16 @@ class HalamanFiturCerdas extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Teknologi & Utilitas JastipGo:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87),
+            Text(
+              adalahTraveler ? 'Utilitas Kerja Traveler Dimas:' : 'Teknologi & Utilitas JastipGo:',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'Seluruh fitur canggih terintegrasi untuk mendukung kenyamanan transaksi belanja mancanegara Anda.',
-              style: TextStyle(fontSize: 12.5, color: Colors.black54),
+            Text(
+              adalahTraveler
+                  ? 'Akses utilitas khusus belanja internasional: kelola pesanan masuk, pantau kurs, cek aturan bagasi koper, dan enkripsi blockchain.'
+                  : 'Seluruh fitur canggih terintegrasi untuk mendukung kenyamanan transaksi titipan belanja mancanegara Anda.',
+              style: const TextStyle(fontSize: 12.5, color: Colors.black54),
             ),
             const SizedBox(height: 20),
 
@@ -138,7 +256,7 @@ class HalamanFiturCerdas extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) => item['halaman']),
-                    );
+                    ).then((_) => _muatPeran());
                   },
                   child: Container(
                     padding: const EdgeInsets.all(16),

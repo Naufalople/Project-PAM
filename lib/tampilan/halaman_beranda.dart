@@ -4,8 +4,10 @@ import '../model/model_keranjang.dart';
 import '../layanan/layanan_api.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_notifikasi.dart';
+import '../layanan/layanan_otentikasi.dart';
 import '../widget/kartu_barang.dart';
 import 'halaman_detail_barang.dart';
+import 'halaman_chat_traveler.dart';
 
 // Halaman Beranda: Katalog Jastip, Filter Negara Singgah, dan Pencarian Live
 class HalamanBeranda extends StatefulWidget {
@@ -24,6 +26,8 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
   String _urutanHarga = 'Normal';
   List<ModelBarangJastip> _daftarBarang = [];
   bool _sedangMemuat = true;
+  String? _pesanError;
+  String _peranAktif = 'PEMESAN';
 
   final List<String> _daftarKategori = [
     'Semua',
@@ -46,17 +50,32 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
   }
 
   Future<void> _muatDataBarang() async {
-    setState(() => _sedangMemuat = true);
-    final hasil = await LayananApi.filterBarang(
-      negara: _negaraDipilih,
-      kategori: _kategoriDipilih,
-      kataKunci: _pencarianController.text,
-      urutanHarga: _urutanHarga,
-    );
     setState(() {
-      _daftarBarang = hasil;
-      _sedangMemuat = false;
+      _sedangMemuat = true;
+      _pesanError = null;
     });
+    try {
+      final hasil = await LayananApi.filterBarang(
+        negara: _negaraDipilih,
+        kategori: _kategoriDipilih,
+        kataKunci: _pencarianController.text,
+        urutanHarga: _urutanHarga,
+      );
+      final peran = await LayananOtentikasi.ambilPeranAktif();
+      if (!mounted) return;
+      setState(() {
+        _peranAktif = peran;
+        _daftarBarang = hasil;
+        _sedangMemuat = false;
+        _pesanError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sedangMemuat = false;
+        _pesanError = 'Gagal memuat katalog: $e';
+      });
+    }
   }
 
   // Tambahkan barang langsung ke keranjang Hive
@@ -116,44 +135,60 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
             ),
           ],
         ),
-        backgroundColor: Colors.teal.shade800,
+        backgroundColor: _peranAktif == 'TRAVELER' ? Colors.indigo.shade800 : Colors.teal.shade800,
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          // Poin 4: Shortcut Obrolan (Chat) di Header Beranda tepat di samping keranjang
           IconButton(
-            tooltip: 'Keranjang',
-            icon: const Icon(Icons.shopping_cart_outlined),
+            tooltip: _peranAktif == 'TRAVELER' ? 'Kotak Masuk Chat Pemesan' : 'Chat Traveler',
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
             onPressed: () {
-              if (widget.padaPindahTab != null) {
-                widget.padaPindahTab!(1); // Pindah ke tab keranjang
-              }
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const HalamanChatTraveler(),
+                ),
+              );
             },
           ),
+          if (_peranAktif != 'TRAVELER')
+            IconButton(
+              tooltip: 'Keranjang',
+              icon: const Icon(Icons.shopping_cart_outlined),
+              onPressed: () {
+                if (widget.padaPindahTab != null) {
+                  widget.padaPindahTab!(1); // Pindah ke tab keranjang
+                }
+              },
+            ),
         ],
       ),
       body: RefreshIndicator(
         onRefresh: _muatDataBarang,
-        color: Colors.teal,
+        color: _peranAktif == 'TRAVELER' ? Colors.indigo : Colors.teal,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Banner Rekomendasi / Informasi Negara Singgah
+              // Banner Rekomendasi / Informasi Negara Singgah Sesuai Peran (Poin 2)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [Colors.teal.shade800, Colors.teal.shade500],
+                    colors: _peranAktif == 'TRAVELER'
+                        ? [Colors.indigo.shade800, Colors.indigo.shade500]
+                        : [Colors.teal.shade800, Colors.teal.shade500],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.teal.withValues(alpha: 0.3),
+                      color: (_peranAktif == 'TRAVELER' ? Colors.indigo : Colors.teal).withValues(alpha: 0.3),
                       blurRadius: 12,
                       offset: const Offset(0, 6),
                     ),
@@ -170,9 +205,9 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
                             color: Colors.white.withValues(alpha: 0.25),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Text(
-                            '✈️ OPEN PO AKTIF',
-                            style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          child: Text(
+                            _peranAktif == 'TRAVELER' ? '✈️ MODE TRAVELER AKTIF' : '✈️ OPEN PO AKTIF',
+                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                           ),
                         ),
                         const Spacer(),
@@ -183,18 +218,22 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    const Text(
-                      'Titip Barang Impian Dari Luar Negeri',
-                      style: TextStyle(
+                    Text(
+                      _peranAktif == 'TRAVELER'
+                          ? 'Kelola Titipan & Riset Barang'
+                          : 'Titip Barang Impian Dari Luar Negeri',
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
-                      'Jaminan 100% Original dengan Sertifikat Struk Blockchain & Kurs Terkini.',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    Text(
+                      _peranAktif == 'TRAVELER'
+                          ? 'Pantau pesanan belanja masuk dari pemesan, cek batas bawaan koper, dan pantau harga pasar.'
+                          : 'Jaminan 100% Original dengan Sertifikat Struk Blockchain & Kurs Terkini.',
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   ],
                 ),
@@ -317,35 +356,85 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
               ),
               const SizedBox(height: 12),
 
-              // Daftar Barang (Grid 2 Kolom)
+              // Daftar Barang (Grid 2 Kolom dengan State Loading, Error, dan Data Kosong)
               _sedangMemuat
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(40.0),
-                        child: CircularProgressIndicator(color: Colors.teal),
+                  ? Container(
+                      padding: const EdgeInsets.all(40),
+                      alignment: Alignment.center,
+                      child: Column(
+                        children: [
+                          const CircularProgressIndicator(color: Colors.teal),
+                          const SizedBox(height: 14),
+                          Text(
+                            'Memuat katalog produk jastip...',
+                            style: TextStyle(
+                              color: Colors.teal.shade800,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     )
-                  : _daftarBarang.isEmpty
+                  : _pesanError != null
                       ? Container(
-                          padding: const EdgeInsets.all(40),
+                          padding: const EdgeInsets.all(32),
                           alignment: Alignment.center,
                           child: Column(
                             children: [
-                              Icon(Icons.search_off_rounded, size: 64, color: Colors.grey.shade400),
+                              Icon(Icons.cloud_off_rounded, size: 56, color: Colors.red.shade400),
                               const SizedBox(height: 12),
-                              const Text(
-                                'Tidak ada barang ditemukan.',
-                                style: TextStyle(color: Colors.black54, fontSize: 14),
+                              Text(
+                                'Gagal Memuat Produk',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red.shade700,
+                                ),
                               ),
                               const SizedBox(height: 6),
-                              const Text(
-                                'Coba ganti kata kunci atau pilih negara singgah lain.',
+                              Text(
+                                _pesanError!,
                                 textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.black38, fontSize: 12),
+                                style: const TextStyle(fontSize: 12, color: Colors.black54),
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton.icon(
+                                onPressed: _muatDataBarang,
+                                icon: const Icon(Icons.refresh, size: 18),
+                                label: const Text('Coba Lagi'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.teal.shade700,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
                         )
+                      : _daftarBarang.isEmpty
+                          ? Container(
+                              padding: const EdgeInsets.all(40),
+                              alignment: Alignment.center,
+                              child: Column(
+                                children: [
+                                  Icon(Icons.search_off_rounded, size: 64, color: Colors.grey.shade400),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'Tidak ada barang ditemukan.',
+                                    style: TextStyle(color: Colors.black54, fontSize: 14),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  const Text(
+                                    'Coba ganti kata kunci atau pilih negara singgah lain.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(color: Colors.black38, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            )
                       : GridView.builder(
                           physics: const NeverScrollableScrollPhysics(),
                           shrinkWrap: true,
@@ -360,6 +449,7 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
                             final barang = _daftarBarang[index];
                             return KartuBarang(
                               barang: barang,
+                              bisaTitip: _peranAktif != 'TRAVELER',
                               saatDitekan: () {
                                 Navigator.push(
                                   context,

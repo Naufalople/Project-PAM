@@ -13,6 +13,7 @@ class _HalamanKalkulatorKursState extends State<HalamanKalkulatorKurs> {
   final TextEditingController _inputNominalController = TextEditingController(text: '1000');
   String _mataUangPilihan = 'JPY';
   int _hasilKonversiRupiah = 0;
+  bool _sedangMemuatKurs = false;
 
   final List<Map<String, String>> _daftarMataUang = [
     {'kode': 'JPY', 'nama': 'Yen Jepang', 'bendera': '🇯🇵', 'simbol': '¥'},
@@ -26,7 +27,19 @@ class _HalamanKalkulatorKursState extends State<HalamanKalkulatorKurs> {
   @override
   void initState() {
     super.initState();
+    _ambilKursLive();
     _hitungKonversi();
+  }
+
+  Future<void> _ambilKursLive() async {
+    setState(() => _sedangMemuatKurs = true);
+    await LayananKonversi.perbaruiKursDariApi();
+    if (mounted) {
+      setState(() {
+        _sedangMemuatKurs = false;
+        _hitungKonversi();
+      });
+    }
   }
 
   @override
@@ -51,12 +64,59 @@ class _HalamanKalkulatorKursState extends State<HalamanKalkulatorKurs> {
         backgroundColor: Colors.teal.shade800,
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: _sedangMemuatKurs
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
+            tooltip: 'Perbarui Kurs Live',
+            onPressed: _sedangMemuatKurs ? null : _ambilKursLive,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Status Sinkronisasi Web Service Kurs Live
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: LayananKonversi.statusOnlineTerhubung ? Colors.teal.shade50 : Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: LayananKonversi.statusOnlineTerhubung ? Colors.teal.shade200 : Colors.amber.shade200,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    LayananKonversi.statusOnlineTerhubung ? Icons.cloud_done_rounded : Icons.cloud_queue_rounded,
+                    color: LayananKonversi.statusOnlineTerhubung ? Colors.teal.shade800 : Colors.amber.shade900,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      LayananKonversi.statusOnlineTerhubung
+                          ? 'Kurs Live REST API (open.er-api.com) • Diperbarui: ${LayananKonversi.waktuPembaruanTerakhir ?? "Baru saja"}'
+                          : 'Mode Offline (Cache Tersimpan) • Tekan tombol refresh untuk update.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: LayananKonversi.statusOnlineTerhubung ? Colors.teal.shade900 : Colors.amber.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             // Panel Input Konversi
             Container(
               padding: const EdgeInsets.all(22),

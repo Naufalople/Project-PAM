@@ -8,8 +8,11 @@ import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_konversi.dart';
 import '../layanan/layanan_sensor.dart';
 import '../layanan/layanan_notifikasi.dart';
+import '../layanan/layanan_ai.dart';
+import '../layanan/layanan_api.dart';
 import 'halaman_checkout.dart';
 import 'halaman_chat_traveler.dart';
+import '../layanan/layanan_otentikasi.dart';
 
 // Halaman Detail Barang Jastip dengan Sensor Giroskop (3D Tilt) & Komunikasi WhatsApp
 class HalamanDetailBarang extends StatefulWidget {
@@ -28,10 +31,42 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
   double _sudutRotasiY = 0.0;
   bool _aktifkanSensor3D = true;
 
+  // Variabel Rekomendasi Cerdas AI (Content-Based & Jaccard Similarity)
+  List<RekomendasiBarangAi> _daftarRekomendasi = [];
+  bool _memuatRekomendasi = true;
+  String _peranAktif = 'PEMESAN';
+
   @override
   void initState() {
     super.initState();
     _inisialisasiSensorGiroskop();
+    _muatRekomendasiAi();
+    _muatPeran();
+  }
+
+  Future<void> _muatPeran() async {
+    final peran = await LayananOtentikasi.ambilPeranAktif();
+    if (mounted) {
+      setState(() => _peranAktif = peran);
+    }
+  }
+
+  Future<void> _muatRekomendasiAi() async {
+    try {
+      final semuaBarang = await LayananApi.ambilSemuaBarang();
+      final hasil = LayananAi.rekomendasikanBarang(
+        barangAcuan: widget.barang,
+        semuaBarang: semuaBarang,
+      );
+      if (mounted) {
+        setState(() {
+          _daftarRekomendasi = hasil;
+          _memuatRekomendasi = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _memuatRekomendasi = false);
+    }
   }
 
   @override
@@ -421,6 +456,192 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
                       ),
                     ),
                   ),
+
+                  const SizedBox(height: 28),
+
+                  // ==========================================
+                  // REKOMENDASI CERDAS UNTUK ANDA (FITUR AI)
+                  // ==========================================
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.auto_awesome, color: Colors.amber.shade800, size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Rekomendasi Cerdas untuk Anda',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.teal.shade200),
+                        ),
+                        child: Text(
+                          'AI Similarity',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.teal.shade800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Dihitung dengan algoritma kemiripan atribut negara, kategori, & preferensi titipan:',
+                    style: TextStyle(fontSize: 11, color: Colors.black45),
+                  ),
+                  const SizedBox(height: 12),
+
+                  _memuatRekomendasi
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(20.0),
+                            child: CircularProgressIndicator(color: Colors.teal),
+                          ),
+                        )
+                      : _daftarRekomendasi.isEmpty
+                          ? Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'Belum ada rekomendasi barang serupa saat ini.',
+                                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                                ),
+                              ),
+                            )
+                          : SizedBox(
+                              height: 220,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: _daftarRekomendasi.length,
+                                separatorBuilder: (context, index) => const SizedBox(width: 12),
+                                itemBuilder: (context, index) {
+                                  final rek = _daftarRekomendasi[index];
+                                  final item = rek.barang;
+                                  return GestureDetector(
+                                    onTap: () {
+                                      Navigator.pushReplacement(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => HalamanDetailBarang(barang: item),
+                                        ),
+                                      );
+                                    },
+                                    child: Container(
+                                      width: 155,
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(16),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(alpha: 0.05),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 3),
+                                          ),
+                                        ],
+                                        border: Border.all(color: Colors.teal.shade100),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Stack(
+                                            children: [
+                                              ClipRRect(
+                                                borderRadius: BorderRadius.circular(10),
+                                                child: Image.network(
+                                                  item.fotoUrl,
+                                                  height: 95,
+                                                  width: double.infinity,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (context, error, stackTrace) =>
+                                                      Container(
+                                                    height: 95,
+                                                    color: Colors.grey.shade200,
+                                                    child: const Icon(Icons.image, color: Colors.grey),
+                                                  ),
+                                                ),
+                                              ),
+                                              Positioned(
+                                                top: 6,
+                                                right: 6,
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.teal.shade800,
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    '${rek.persentaseCocok}% Cocok',
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 9,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            item.namaBarang,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            '${item.benderaNegara} ${item.negara}',
+                                            style: const TextStyle(fontSize: 10, color: Colors.black54),
+                                          ),
+                                          const Spacer(),
+                                          Text(
+                                            LayananKonversi.formatRupiah(item.estimasiHargaIdr),
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w900,
+                                              color: Colors.teal.shade900,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            rek.alasanRekomendasi,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              color: Colors.teal.shade700,
+                                              fontStyle: FontStyle.italic,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
                   const SizedBox(height: 100), // Spasi agar tidak tertutup bottom bar
                 ],
               ),
@@ -440,59 +661,94 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
             ),
           ],
         ),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.teal.shade800,
-                  side: BorderSide(color: Colors.teal.shade600),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: _peranAktif == 'TRAVELER'
+            ? Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.indigo.shade200),
                 ),
-                onPressed: _tambahKeKeranjang,
-                icon: const Icon(Icons.add_shopping_cart, size: 20),
-                label: const Text('Keranjang', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 3,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal.shade700,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                onPressed: () {
-                  // Langsung ke checkout untuk item ini
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => HalamanCheckout(
-                        daftarItem: [
-                          ModelKeranjang(
-                            idBarang: widget.barang.id,
-                            namaBarang: widget.barang.namaBarang,
-                            negara: widget.barang.negara,
-                            kodeMataUang: widget.barang.kodeMataUang,
-                            hargaAsli: widget.barang.hargaAsli,
-                            hargaIdr: widget.barang.estimasiHargaIdr,
-                            jumlah: 1,
-                            fotoUrl: widget.barang.fotoUrl,
+                child: Row(
+                  children: [
+                    Icon(Icons.flight_takeoff, color: Colors.indigo.shade800, size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Mode Akun Traveler ✈️',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.indigo.shade900,
+                            ),
+                          ),
+                          const Text(
+                            'Fitur pemesanan dan checkout dinonaktifkan untuk akun Traveler. Traveler berfokus menerima dan mengelola titipan barang.',
+                            style: TextStyle(fontSize: 10.5, color: Colors.black87),
                           ),
                         ],
                       ),
                     ),
-                  );
-                },
-                child: const Text('TITIP SEKARANG', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              )
+            : Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.teal.shade800,
+                        side: BorderSide(color: Colors.teal.shade600),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: _tambahKeKeranjang,
+                      icon: const Icon(Icons.add_shopping_cart, size: 20),
+                      label: const Text('Keranjang', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 3,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.teal.shade700,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () {
+                        // Langsung ke checkout untuk item ini
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => HalamanCheckout(
+                              daftarItem: [
+                                ModelKeranjang(
+                                  idBarang: widget.barang.id,
+                                  namaBarang: widget.barang.namaBarang,
+                                  negara: widget.barang.negara,
+                                  kodeMataUang: widget.barang.kodeMataUang,
+                                  hargaAsli: widget.barang.hargaAsli,
+                                  hargaIdr: widget.barang.estimasiHargaIdr,
+                                  jumlah: 1,
+                                  fotoUrl: widget.barang.fotoUrl,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                      child: const Text('TITIP SEKARANG', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }

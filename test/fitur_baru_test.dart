@@ -3,7 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:project_pam/layanan/layanan_basisdata_lokal.dart';
 import 'package:project_pam/layanan/layanan_ai.dart';
+import 'package:project_pam/layanan/layanan_api.dart';
 import 'package:project_pam/model/model_keranjang.dart';
+import 'package:project_pam/model/model_barang_jastip.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -16,6 +18,7 @@ void main() {
     await Hive.openBox(LayananBasisDataLokal.namaKotakKeranjang);
     await Hive.openBox(LayananBasisDataLokal.namaKotakPesanan);
     await Hive.openBox(LayananBasisDataLokal.namaKotakVoucher);
+    await Hive.openBox(LayananBasisDataLokal.namaKotakKatalog);
   });
 
   tearDownAll(() async {
@@ -30,12 +33,15 @@ void main() {
     await Hive.box(LayananBasisDataLokal.namaKotakVoucher).clear();
   });
 
-  group('Uji Fitur 1: AI Lens Scanner', () {
-    test('AI Scanner mendeteksi produk dan menghasilkan estimasi harga', () async {
-      final hasil = await LayananAi.pindaiGambarKamera(namaFileAtauPath: 'tokyo_banana.jpg');
-      expect(hasil.namaProduk, isNotEmpty);
-      expect(hasil.estimasiHargaIdr, greaterThan(0));
-      expect(hasil.tingkatKeyakinan, inInclusiveRange(0.0, 1.0));
+  group('Uji Fitur 1: AI Recommendation Engine Berbasis Data Pembelian', () {
+    test('AI Engine menghitung total kuantitas pembelian dummy dan peringkat terlaris', () async {
+      final totalBeli = LayananAi.hitungTotalPembelianPerBarang();
+      expect(totalBeli, isNotEmpty);
+      expect(totalBeli[1], greaterThan(20)); // Tokyo Banana memiliki banyak transaksi dummy
+
+      final matriksCoBeli = LayananAi.hitungMatriksPembelianBersamaan();
+      expect(matriksCoBeli, isNotEmpty);
+      expect(LayananAi.ambilFrekuensiDibeliBersama(1, 2), greaterThan(0)); // Tokyo Banana & Hada Labo sering dibeli bersama
     });
   });
 
@@ -80,6 +86,82 @@ void main() {
       // 3. Pastikan voucher sudah hilang dan tidak bisa dipakai ulang
       daftarVoucher = LayananBasisDataLokal.ambilSemuaVoucher();
       expect(daftarVoucher.any((v) => v.kode == 'SHAKE50'), isFalse);
+    });
+  });
+
+  group('Uji Fitur TODO_FIX Poin 5: AI Recommendation Engine', () {
+    test('Algoritma Content-Based merekomendasikan produk berdasarkan kemiripan negara & kategori', () async {
+      final barangAcuan = ModelBarangJastip(
+        id: 1,
+        namaBarang: 'Tokyo Banana Classic Box',
+        kategori: 'Kuliner',
+        negara: 'Jepang',
+        benderaNegara: '🇯🇵',
+        kodeMataUang: 'JPY',
+        hargaAsli: 1200.0,
+        estimasiHargaIdr: 135000,
+        fotoUrl: 'https://example.com/tokyo.jpg',
+        deskripsi: 'Kue pisang',
+        namaToko: 'Tokyo Station',
+        batasWaktuPo: '2 Hari',
+        rating: 4.9,
+        jumlahPeminat: 100,
+      );
+
+      final katalog = [
+        barangAcuan,
+        ModelBarangJastip(
+          id: 2,
+          namaBarang: 'Hada Labo Lotion',
+          kategori: 'Skincare',
+          negara: 'Jepang',
+          benderaNegara: '🇯🇵',
+          kodeMataUang: 'JPY',
+          hargaAsli: 990.0,
+          estimasiHargaIdr: 110000,
+          fotoUrl: 'https://example.com/hadalabo.jpg',
+          deskripsi: 'Lotion pelembab',
+          namaToko: 'Don Quijote',
+          batasWaktuPo: '2 Hari',
+          rating: 4.8,
+          jumlahPeminat: 90,
+        ),
+        ModelBarangJastip(
+          id: 3,
+          namaBarang: 'Harrods Bag',
+          kategori: 'Fashion',
+          negara: 'London (UK)',
+          benderaNegara: '🇬🇧',
+          kodeMataUang: 'GBP',
+          hargaAsli: 35.0,
+          estimasiHargaIdr: 720000,
+          fotoUrl: 'https://example.com/harrods.jpg',
+          deskripsi: 'Tas belanja',
+          namaToko: 'Harrods',
+          batasWaktuPo: 'Hari Ini',
+          rating: 4.9,
+          jumlahPeminat: 50,
+        ),
+      ];
+
+      final rekomendasi = LayananAi.rekomendasikanBarang(
+        barangAcuan: barangAcuan,
+        semuaBarang: katalog,
+      );
+
+      expect(rekomendasi, isNotEmpty);
+      expect(rekomendasi.first.barang.id, equals(2)); // Hada Labo dari Jepang (skor kemiripan tertinggi)
+      expect(rekomendasi.first.skorKemiripan, greaterThan(0.4));
+      expect(rekomendasi.first.alasanRekomendasi, contains('Jepang'));
+    });
+  });
+
+  group('Uji Fitur TODO_FIX Poin 3: Migrasi Produk Dinamis', () {
+    test('Katalog produk dimuat secara dinamis dari API / database Hive', () async {
+      final produk = await LayananApi.ambilSemuaBarang();
+      expect(produk, isNotEmpty);
+      expect(produk.length, greaterThanOrEqualTo(10));
+      expect(produk.any((p) => p.negara.contains('Jepang')), isTrue);
     });
   });
 }

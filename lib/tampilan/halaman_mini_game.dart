@@ -32,7 +32,9 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
 
   Future<void> _muatStatusAntiEksploitasi() async {
     final prefs = await SharedPreferences.getInstance();
-    final bool pernahKlaim = prefs.getBool(_kunciVoucherKuisKlaim) ?? false;
+    final profil = await LayananOtentikasi.ambilProfilAktif();
+    final String userId = profil?.id != null ? profil!.id.toString() : '1';
+    final bool pernahKlaim = prefs.getBool('${_kunciVoucherKuisKlaim}_$userId') ?? false;
     final peran = await LayananOtentikasi.ambilPeranAktif();
     if (mounted) {
       setState(() {
@@ -118,15 +120,19 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
     } else {
       ModelVoucher? hadiah;
       if (skorBaru >= 50) {
-        // Validasi Anti-Eksploitasi: Cek apakah voucher kuis sudah pernah diklaim sebelumnya
+        // Validasi Anti-Eksploitasi: Cek apakah voucher kuis sudah pernah diklaim sebelumnya oleh akun ini (Poin 4)
         if (!_hadiahSudahPernahDiklaim) {
+          final profil = await LayananOtentikasi.ambilProfilAktif();
+          final String userId = profil?.id != null ? profil!.id.toString() : '1';
           hadiah = ModelVoucher(
             kode: 'KUIS50',
             judul: 'Voucher Juara Kuis Rp 50.000',
             potonganIdr: 50000,
             deskripsi: 'Hadiah keberhasilan kuis wawasan koper jastip.',
+            userId: userId,
           );
-          await LayananBasisDataLokal.simpanVoucher(hadiah);
+          await LayananBasisDataLokal.simpanVoucher(hadiah, userId: userId);
+          await prefs.setBool('${_kunciVoucherKuisKlaim}_$userId', true);
           await prefs.setBool(_kunciVoucherKuisKlaim, true);
           _hadiahSudahPernahDiklaim = true;
 

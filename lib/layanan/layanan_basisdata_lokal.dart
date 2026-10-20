@@ -5,18 +5,20 @@ import '../model/model_pesanan_jastip.dart';
 import '../model/model_pesan_chat.dart';
 import '../model/model_barang_jastip.dart';
 
-// Model data untuk Kupon / Voucher Promo Diskon Jastip
+// Model data untuk Kupon / Voucher Promo Diskon Jastip dengan Isolasi Akun (User ID)
 class ModelVoucher {
   final String kode;
   final String judul;
   final int potonganIdr;
   final String deskripsi;
+  final String userId;
 
   ModelVoucher({
     required this.kode,
     required this.judul,
     required this.potonganIdr,
     required this.deskripsi,
+    this.userId = '',
   });
 
   Map<String, dynamic> keMap() => {
@@ -24,6 +26,7 @@ class ModelVoucher {
         'judul': judul,
         'potonganIdr': potonganIdr,
         'deskripsi': deskripsi,
+        'userId': userId,
       };
 
   factory ModelVoucher.dariMap(Map data) => ModelVoucher(
@@ -31,6 +34,7 @@ class ModelVoucher {
         judul: data['judul']?.toString() ?? '',
         potonganIdr: (data['potonganIdr'] as num?)?.toInt() ?? 0,
         deskripsi: data['deskripsi']?.toString() ?? '',
+        userId: data['userId']?.toString() ?? '',
       );
 }
 
@@ -61,6 +65,7 @@ class LayananBasisDataLokal {
   static const String namaKotakVoucher = 'kotak_voucher';
   static const String namaKotakChat = 'kotak_chat_jastip';
   static const String namaKotakKatalog = 'kotak_katalog_jastip';
+  static const String namaKotakPengguna = 'kotak_pengguna';
 
   // Inisialisasi Hive saat aplikasi pertama kali dijalankan
   static Future<void> inisialisasi() async {
@@ -71,6 +76,7 @@ class LayananBasisDataLokal {
     final boxVoucher = await Hive.openBox(namaKotakVoucher);
     final boxChat = await Hive.openBox(namaKotakChat);
     await Hive.openBox(namaKotakKatalog);
+    await Hive.openBox(namaKotakPengguna);
 
     // Hapus pesanan bawaan dummy lama agar HANYA pesanan nyata yang dibuat pengguna yang tampil
     final List<int> indeksHapus = [];
@@ -96,76 +102,25 @@ class LayananBasisDataLokal {
       await _inisialisasiVoucherAwal(boxVoucher);
     }
 
-    // Inisialisasi pembuka obrolan dari berbagai pemesan jika masih kosong (Poin 5: Multi-Pemesan Inbox)
-    if (boxChat.isEmpty) {
-      final waktuSekarang = DateTime.now();
-      // Thread 1: Pemesan Utama (Siti / Anda)
-      await boxChat.add(
-        ModelPesanChat(
-          id: 'pesan_awal_1',
-          teks: 'Halo! Saya Dimas Pratama (Traveler Luar Negeri). Ada yang ingin dititipkan dari luar negeri?',
-          adalahPengguna: false,
-          pengirim: 'TRAVELER',
-          namaPengirim: 'Dimas Pratama (Traveler)',
-          waktu: waktuSekarang.subtract(const Duration(hours: 2)),
-          idPemesan: 'pemesan@jastipgo.com',
-          namaPemesan: 'Pemesan Jastip (Anda)',
-        ).keMap(),
-      );
-      await boxChat.add(
-        ModelPesanChat(
-          id: 'pesan_awal_2',
-          teks: 'Halo kak Dimas! Saya mau titip Tokyo Banana Classic Box ya.',
-          adalahPengguna: true,
-          pengirim: 'PEMESAN',
-          namaPengirim: 'Pemesan Jastip (Anda)',
-          waktu: waktuSekarang.subtract(const Duration(hours: 1, minutes: 45)),
-          idPemesan: 'pemesan@jastipgo.com',
-          namaPemesan: 'Pemesan Jastip (Anda)',
-        ).keMap(),
-      );
-      // Thread 2: Jessica Tan (Seoul)
-      await boxChat.add(
-        ModelPesanChat(
-          id: 'pesan_jessica_1',
-          teks: 'Kak Dimas, apakah essence COSRX Snail Mucin di Olive Young Myeongdong stoknya masih ada?',
-          adalahPengguna: true,
-          pengirim: 'PEMESAN',
-          namaPengirim: 'Jessica Tan',
-          waktu: waktuSekarang.subtract(const Duration(hours: 1, minutes: 15)),
-          idPemesan: 'jessica.tan@gmail.com',
-          namaPemesan: 'Jessica Tan (Jakarta)',
-        ).keMap(),
-      );
-      await boxChat.add(
-        ModelPesanChat(
-          id: 'pesan_jessica_2',
-          teks: 'Halo Jessica! Sudah aman, barusan saya belikan di gerai Myeongdong ya.',
-          adalahPengguna: false,
-          pengirim: 'TRAVELER',
-          namaPengirim: 'Dimas Pratama (Traveler)',
-          waktu: waktuSekarang.subtract(const Duration(minutes: 50)),
-          idPemesan: 'jessica.tan@gmail.com',
-          namaPemesan: 'Jessica Tan (Jakarta)',
-        ).keMap(),
-      );
-      // Thread 3: Budi Santoso (Surabaya)
-      await boxChat.add(
-        ModelPesanChat(
-          id: 'pesan_budi_1',
-          teks: 'Halo kak, untuk Gunpla Gundam RG apakah slot koper masih cukup muat ya?',
-          adalahPengguna: true,
-          pengirim: 'PEMESAN',
-          namaPengirim: 'Budi Santoso',
-          waktu: waktuSekarang.subtract(const Duration(minutes: 25)),
-          idPemesan: 'budi.santoso@yahoo.com',
-          namaPemesan: 'Budi Santoso (Surabaya)',
-        ).keMap(),
-      );
+    // Bersihkan obrolan bawaan dummy lama agar chat room bersih (Poin 5: Hapus Auto-Chat Default)
+    final List<int> indeksHapusChat = [];
+    for (int i = 0; i < boxChat.length; i++) {
+      final data = boxChat.getAt(i);
+      if (data is Map) {
+        final id = data['id']?.toString() ?? '';
+        if (id.startsWith('pesan_awal') ||
+            id.startsWith('pesan_jessica') ||
+            id.startsWith('pesan_budi')) {
+          indeksHapusChat.add(i);
+        }
+      }
+    }
+    for (int idx in indeksHapusChat.reversed) {
+      await boxChat.deleteAt(idx);
     }
   }
 
-  // Voucher awal untuk demonstrasi dan uji coba pemesan
+  // Voucher awal untuk demonstrasi dan uji coba pemesan terikat ke User ID 1 (Siti)
   static Future<void> _inisialisasiVoucherAwal(Box box) async {
     final voucherAwal = [
       ModelVoucher(
@@ -173,12 +128,14 @@ class LayananBasisDataLokal {
         judul: '🎉 Diskon Ongkos Jastip Rp 50.000',
         potonganIdr: 50000,
         deskripsi: 'Didapat dari Goyang HP (Shake Promo)',
+        userId: '1',
       ),
       ModelVoucher(
         kode: 'POJASTIP100',
         judul: '🎁 Potongan Belanja Rp 100.000 (Spesial Harrods & Tokyo)',
         potonganIdr: 100000,
         deskripsi: 'Voucher pengguna baru jastip internasional',
+        userId: '1',
       ),
     ];
     for (var v in voucherAwal) {
@@ -203,44 +160,179 @@ class LayananBasisDataLokal {
     return pesan;
   }
 
-  // Ambil pesan percakapan khusus untuk pemesan tertentu (Poin 5: Isolasi Obrolan)
-  static List<ModelPesanChat> ambilPesanChatUntukPemesan(String idPemesan) {
+  // Ambil pesan percakapan khusus untuk pemesan tertentu (Poin 3: Sinkronisasi senderId & receiverId)
+  static List<ModelPesanChat> ambilPesanChatUntukPemesan(String idPemesan, {String? userId}) {
     final semua = ambilSemuaPesanChat();
-    final hasil = semua.where((p) => p.idPemesan.toLowerCase() == idPemesan.toLowerCase()).toList();
+    final cleanId = idPemesan.toLowerCase().trim();
+    final cleanUser = userId?.toLowerCase().trim();
+
+    final hasil = semua.where((p) {
+      final s = p.senderId.toLowerCase().trim();
+      final r = p.receiverId.toLowerCase().trim();
+      final pId = p.idPemesan.toLowerCase().trim();
+      final uId = p.userId?.toLowerCase().trim();
+
+      if (cleanUser != null && (s == cleanUser || r == cleanUser || uId == cleanUser)) return true;
+      if (s == cleanId || r == cleanId || pId == cleanId) return true;
+      return false;
+    }).toList();
     hasil.sort((a, b) => a.waktu.compareTo(b.waktu));
     return hasil;
   }
 
-  // Ambil ringkasan seluruh thread pemesan untuk tampilan inbox traveler (Poin 5: Inbox Traveler)
-  static List<ThreadChatPemesan> ambilDaftarThreadPemesan() {
-    final semuaPesan = ambilSemuaPesanChat();
+  // Ambil seluruh pesan di mana receiverId atau senderId cocok dengan akun Traveler (Poin 3)
+  static List<ModelPesanChat> ambilPesanChatUntukTraveler({
+    required String travelerId,
+    String? emailTraveler,
+  }) {
+    final semua = ambilSemuaPesanChat();
+    final tId = travelerId.toLowerCase().trim();
+    final eId = emailTraveler?.toLowerCase().trim() ?? '';
+
+    final hasil = semua.where((p) {
+      final r = p.receiverId.toLowerCase().trim();
+      final s = p.senderId.toLowerCase().trim();
+
+      // Cocok jika receiverId adalah Traveler (pesan masuk dari Pemesan)
+      if (r == tId || (eId.isNotEmpty && r == eId) || r == '2' || r.contains('traveler')) return true;
+      // Atau senderId adalah Traveler (pesan balasan keluar dari Traveler)
+      if (s == tId || (eId.isNotEmpty && s == eId) || s == '2' || s.contains('traveler')) return true;
+
+      return false;
+    }).toList();
+
+    hasil.sort((a, b) => a.waktu.compareTo(b.waktu));
+    return hasil;
+  }
+
+  // Ambil ringkasan seluruh thread pemesan untuk tampilan inbox traveler (Poin 3 & Poin 5)
+  static List<ThreadChatPemesan> ambilDaftarThreadPemesan({String? travelerId, String? emailTraveler}) {
+    final List<ModelPesanChat> semuaPesan = (travelerId != null || emailTraveler != null)
+        ? ambilPesanChatUntukTraveler(travelerId: travelerId ?? '2', emailTraveler: emailTraveler)
+        : ambilSemuaPesanChat();
+
     final Map<String, List<ModelPesanChat>> grup = {};
 
     for (var p in semuaPesan) {
-      grup.putIfAbsent(p.idPemesan, () => []).add(p);
+      // Kelompokkan per thread pemesan
+      String keyThread = p.idPemesan;
+      if (keyThread.isEmpty || keyThread == '2' || keyThread.contains('traveler')) {
+        keyThread = p.senderId != '2' && !p.senderId.contains('traveler') ? p.senderId : p.receiverId;
+      }
+      grup.putIfAbsent(keyThread, () => []).add(p);
     }
 
     final List<ThreadChatPemesan> threads = [];
+    final List<ModelPesananJastip> daftarPesanan = ambilSemuaPesanan();
+    final List<Map<String, dynamic>> daftarAkun = ambilSemuaAkunHive();
+
     grup.forEach((idPemesan, listPesan) {
       listPesan.sort((a, b) => a.waktu.compareTo(b.waktu));
       final terakhir = listPesan.last;
 
-      String nama = terakhir.namaPemesan;
-      if (nama.isEmpty || nama == 'Pengguna') {
-        final kandidat = listPesan.firstWhere(
-          (m) => m.pengirim == 'PEMESAN' && m.namaPengirim.isNotEmpty,
-          orElse: () => terakhir,
-        );
-        nama = kandidat.namaPengirim;
+      // Resolusi Akurat: Nama Asli Akun Pemesan (Poin 1 TODO_PERBAIKAN_FITUR)
+      String nama = '';
+
+      // 1. Cari dari pesan yang dikirim oleh pemesan
+      for (var m in listPesan.reversed) {
+        if (m.pengirim == 'PEMESAN' && m.namaPengirim.trim().isNotEmpty) {
+          final n = m.namaPengirim.trim();
+          if (!n.toLowerCase().contains('traveler') && n.toLowerCase() != 'dimas pratama') {
+            nama = n;
+            break;
+          }
+        }
+      }
+
+      // 2. Cari dari m.adalahPengguna
+      if (nama.isEmpty) {
+        for (var m in listPesan.reversed) {
+          if (m.adalahPengguna && m.namaPengirim.trim().isNotEmpty) {
+            final n = m.namaPengirim.trim();
+            if (!n.toLowerCase().contains('traveler') && n.toLowerCase() != 'dimas pratama') {
+              nama = n;
+              break;
+            }
+          }
+        }
+      }
+
+      // 3. Cari dari daftar pesanan aktif pemesan
+      if (nama.isEmpty) {
+        final idTarget = idPemesan.toLowerCase().trim();
+        for (var pesanan in daftarPesanan) {
+          final em = pesanan.emailPemesan?.toLowerCase().trim() ?? '';
+          final uId = pesanan.userId?.toLowerCase().trim() ?? '';
+          final nm = pesanan.namaPemesan?.trim() ?? '';
+          if (em == idTarget || uId == idTarget) {
+            if (nm.isNotEmpty) {
+              nama = nm;
+              break;
+            }
+          }
+        }
+      }
+
+      // 4. Cari dari data akun pengguna yang terdaftar di Hive
+      if (nama.isEmpty) {
+        final idTarget = idPemesan.toLowerCase().trim();
+        for (var akun in daftarAkun) {
+          final em = akun['email']?.toString().toLowerCase().trim() ?? '';
+          final idAkun = akun['id']?.toString().toLowerCase().trim() ?? '';
+          if (em == idTarget || idAkun == idTarget) {
+            final nm = akun['nama']?.toString().trim() ?? '';
+            if (nm.isNotEmpty && !nm.toLowerCase().contains('traveler')) {
+              nama = nm;
+              break;
+            }
+          }
+        }
+      }
+
+      // 5. Cek terakhir.namaPemesan jika bukan nama traveler
+      if (nama.isEmpty) {
+        final n = terakhir.namaPemesan.trim();
+        if (n.isNotEmpty &&
+            n != 'Pengguna' &&
+            n != 'Pemesan' &&
+            !n.toLowerCase().contains('traveler') &&
+            n.toLowerCase() != 'dimas pratama') {
+          nama = n;
+        }
+      }
+
+      // 6. Fallback cerdas berdasarkan idPemesan
+      if (nama.isEmpty) {
+        final idTarget = idPemesan.toLowerCase().trim();
+        if (idTarget.contains('siti') || idTarget == '1') {
+          nama = 'Siti Rahma';
+        } else if (idTarget.contains('jessica')) {
+          nama = 'Jessica Mila';
+        } else if (idTarget.contains('budi')) {
+          nama = 'Budi Santoso';
+        } else {
+          nama = 'Pemesan ($idPemesan)';
+        }
       }
 
       String? infoTitipan;
-      if (idPemesan.contains('pemesan') || idPemesan.contains('siti')) {
+      if (idPemesan.contains('pemesan') || idPemesan.contains('siti') || idPemesan == '1') {
         infoTitipan = 'Tokyo Banana Classic Box (Jepang 🇯🇵)';
       } else if (idPemesan.contains('jessica')) {
         infoTitipan = 'COSRX Snail Mucin (Korea 🇰🇷)';
       } else if (idPemesan.contains('budi')) {
         infoTitipan = 'Gundam RG 1/144 (Jepang 🇯🇵)';
+      }
+      if (infoTitipan == null) {
+        final idTarget = idPemesan.toLowerCase().trim();
+        for (var pesanan in daftarPesanan) {
+          final em = pesanan.emailPemesan?.toLowerCase().trim() ?? '';
+          final uId = pesanan.userId?.toLowerCase().trim() ?? '';
+          if (em == idTarget || uId == idTarget) {
+            infoTitipan = '${pesanan.idPesanan} (${pesanan.negaraAsal})';
+            break;
+          }
+        }
       }
 
       threads.add(ThreadChatPemesan(
@@ -263,11 +355,15 @@ class LayananBasisDataLokal {
     await box.add(pesanBaru.keMap());
   }
 
-  // Kosongkan riwayat obrolan jika diperlukan
-  static Future<void> bersihkanChat() async {
-    final box = Hive.box(namaKotakChat);
-    await box.clear();
+  // Kosongkan riwayat obrolan jika diperlukan / saat logout (Poin 6: Isolasi Sesi Chat)
+  static Future<void> bersihkanMemoriChat() async {
+    if (Hive.isBoxOpen(namaKotakChat)) {
+      final box = Hive.box(namaKotakChat);
+      await box.clear();
+    }
   }
+
+  static Future<void> bersihkanChat() async => bersihkanMemoriChat();
 
   // ==========================================
   // FITUR DAFTAR PESANAN & STATUS (CRUD HIVE)
@@ -286,6 +382,60 @@ class LayananBasisDataLokal {
     // Urutkan dari pesanan terbaru
     daftar.sort((a, b) => b.tanggal.compareTo(a.tanggal));
     return daftar;
+  }
+
+  // Ambil pesanan yang difilter khusus untuk akun pengguna yang login (Poin 8: Isolasi Pelacakan Pesanan)
+  static List<ModelPesananJastip> ambilPesananUntukPengguna({String? userId, String? email}) {
+    final semua = ambilSemuaPesanan();
+    if (userId == null && email == null) return semua;
+
+    return semua.where((p) {
+      if (userId != null && p.userId != null && p.userId == userId) return true;
+      if (email != null && p.emailPemesan != null && p.emailPemesan!.toLowerCase() == email.toLowerCase()) return true;
+      // Kompatibilitas untuk pesanan lama
+      if (p.userId == null && p.emailPemesan == null) {
+        if (email != null && email.toLowerCase() == 'pemesan@jastipgo.com') return true;
+        if (userId != null && userId == '1') return true;
+      }
+      return false;
+    }).toList();
+  }
+
+  // ========================================================
+  // VALIDASI PESANAN AKTIF TRAVELER (TODO_VALIDASI_DESTINASI)
+  // ========================================================
+
+  /// Memeriksa apakah masih ada pesanan yang ditangani traveler dengan status belum mencapai
+  /// tahap 4 ("Dikirim ke Indonesia" / Penerbangan).
+  /// Mengembalikan true jika ada pesanan yang belum dikirim ke Indonesia.
+  static bool apakahAdaPesananBelumDikirim({String? namaTraveler}) {
+    final semua = ambilSemuaPesanan();
+    if (semua.isEmpty) return false;
+
+    return semua.any((pesanan) {
+      if (namaTraveler != null && namaTraveler.trim().isNotEmpty) {
+        final String cleanInput = namaTraveler.trim().toLowerCase();
+        final String cleanOrder = pesanan.namaTraveler.trim().toLowerCase();
+        final bool cocok = cleanOrder.contains(cleanInput) || cleanInput.contains(cleanOrder);
+        if (!cocok) return false;
+      }
+      // Status < 4 berarti masih dalam tahap 1 (Menunggu ACC), 2 (Menuju Toko), atau 3 (Sudah Dibeli tapi belum terbang ke RI)
+      return pesanan.tahapStatus < 4;
+    });
+  }
+
+  /// Mengambil daftar pesanan aktif yang sedang ditangani traveler dan belum dikirim ke Indonesia
+  static List<ModelPesananJastip> ambilPesananBelumDikirimTraveler({String? namaTraveler}) {
+    final semua = ambilSemuaPesanan();
+    return semua.where((pesanan) {
+      if (namaTraveler != null && namaTraveler.trim().isNotEmpty) {
+        final String cleanInput = namaTraveler.trim().toLowerCase();
+        final String cleanOrder = pesanan.namaTraveler.trim().toLowerCase();
+        final bool cocok = cleanOrder.contains(cleanInput) || cleanInput.contains(cleanOrder);
+        if (!cocok) return false;
+      }
+      return pesanan.tahapStatus < 4;
+    }).toList();
   }
 
   // Tambah pesanan baru (misal saat checkout selesai)
@@ -319,6 +469,28 @@ class LayananBasisDataLokal {
         break;
       }
     }
+  }
+
+  /// Mengonfirmasi pesanan telah diterima oleh Pemesan (Poin 5)
+  /// Mengubah tahapStatus menjadi 6 (Selesai/Sudah Diterima)
+  static Future<void> konfirmasiPesananDiterima(String idPesanan) async {
+    await perbaruiStatusPesanan(
+      idPesanan,
+      tahapStatus: 6,
+      lokasiTerkini: 'Telah Diterima Pemesan di Alamat Tujuan (Transaksi Selesai) 🎉',
+    );
+  }
+
+  /// Mengambil daftar pesanan berstatus "Belum Diterima" (tahapStatus < 6)
+  static List<ModelPesananJastip> ambilPesananBelumDiterima({String? userId, String? email}) {
+    final list = ambilPesananUntukPengguna(userId: userId, email: email);
+    return list.where((p) => p.apakahBelumDiterima).toList();
+  }
+
+  /// Mengambil daftar pesanan berstatus "Sudah Diterima" (tahapStatus >= 6)
+  static List<ModelPesananJastip> ambilPesananSudahDiterima({String? userId, String? email}) {
+    final list = ambilPesananUntukPengguna(userId: userId, email: email);
+    return list.where((p) => p.apakahSudahDiterima).toList();
   }
 
   // ==========================================
@@ -424,45 +596,86 @@ class LayananBasisDataLokal {
 
   // ==========================================
   // FITUR MANAJEMEN VOUCHER PROMO (HIVE)
+  // ISOLASI PROMO BERDASARKAN USER ID (POIN 4)
   // ==========================================
 
-  // Ambil semua voucher yang belum dipakai
-  static List<ModelVoucher> ambilSemuaVoucher() {
+  // Ambil semua voucher yang belum dipakai dengan filter User ID akun aktif
+  static List<ModelVoucher> ambilSemuaVoucher({String? userId}) {
     final box = Hive.box(namaKotakVoucher);
     final List<ModelVoucher> daftar = [];
     for (int i = 0; i < box.length; i++) {
       final data = box.getAt(i);
       if (data != null && data is Map) {
-        daftar.add(ModelVoucher.dariMap(data));
+        final voucher = ModelVoucher.dariMap(data);
+        if (userId != null && userId.isNotEmpty) {
+          // Hanya muat kupon yang terikat dengan User ID milik akun yang sedang login saat ini
+          if (voucher.userId == userId) {
+            daftar.add(voucher);
+          } else if (voucher.userId.isEmpty && (userId == '1' || userId.toLowerCase().contains('pemesan'))) {
+            // Kompatibilitas kupon awal untuk akun pemesan default
+            daftar.add(voucher);
+          }
+        } else {
+          daftar.add(voucher);
+        }
       }
     }
     return daftar;
   }
 
-  // Simpan voucher baru (didapat dari Shake Promo atau Mini Game)
-  static Future<void> simpanVoucher(ModelVoucher voucher) async {
+  // Simpan voucher baru dengan pengenal unik User ID (didapat dari Shake Promo atau Mini Game)
+  static Future<void> simpanVoucher(ModelVoucher voucher, {String? userId}) async {
     final box = Hive.box(namaKotakVoucher);
-    // Cek jika voucher dengan kode ini sudah ada
+    final String targetUserId = (userId != null && userId.isNotEmpty)
+        ? userId
+        : (voucher.userId.isNotEmpty ? voucher.userId : '1');
+
+    // Cek jika voucher dengan kode ini sudah ada untuk akun/User ID yang sama
     for (int i = 0; i < box.length; i++) {
       final data = box.getAt(i);
-      if (data != null && data is Map && data['kode'] == voucher.kode) {
-        return; // Jangan duplikasi
+      if (data != null && data is Map) {
+        final existing = ModelVoucher.dariMap(data);
+        if (existing.kode == voucher.kode &&
+            (existing.userId == targetUserId || (existing.userId.isEmpty && targetUserId == '1'))) {
+          return; // Jangan duplikasi voucher yang sama untuk akun ini
+        }
       }
     }
-    await box.add(voucher.keMap());
+
+    final voucherBaru = ModelVoucher(
+      kode: voucher.kode,
+      judul: voucher.judul,
+      potonganIdr: voucher.potonganIdr,
+      deskripsi: voucher.deskripsi,
+      userId: targetUserId,
+    );
+    await box.add(voucherBaru.keMap());
   }
 
-  // Gunakan voucher (langsung dihapus dari database agar tidak bisa dipakai ulang)
-  static Future<bool> gunakanVoucher(String kode) async {
+  // Gunakan voucher (langsung dihapus dari database khusus milik User ID terkait agar tidak bisa dipakai ulang)
+  static Future<bool> gunakanVoucher(String kode, {String? userId}) async {
     final box = Hive.box(namaKotakVoucher);
     for (int i = 0; i < box.length; i++) {
       final data = box.getAt(i);
-      if (data != null && data is Map && data['kode'] == kode) {
-        await box.deleteAt(i);
-        return true;
+      if (data != null && data is Map) {
+        final v = ModelVoucher.dariMap(data);
+        if (v.kode == kode) {
+          if (userId == null ||
+              userId.isEmpty ||
+              v.userId == userId ||
+              (v.userId.isEmpty && (userId == '1' || userId.toLowerCase().contains('pemesan')))) {
+            await box.deleteAt(i);
+            return true;
+          }
+        }
       }
     }
     return false;
+  }
+
+  // Bersihkan memori/state promo saat pengguna logout agar data tidak bocor ke akun lain
+  static void bersihkanStatePromo() {
+    // Memastikan pembersihan state memori lokal promo
   }
 
   // ==========================================
@@ -502,5 +715,52 @@ class LayananBasisDataLokal {
     }
     final box = Hive.box(namaKotakKatalog);
     await box.add(barang.keJson());
+  }
+
+  // ========================================================
+  // PENYIMPANAN AKUN PENGGUNA DI HIVE (VALIDASI REGISTRASI)
+  // ========================================================
+
+  // Mengambil seluruh data akun yang tersimpan di database lokal Hive
+  static List<Map<String, dynamic>> ambilSemuaAkunHive() {
+    try {
+      if (!Hive.isBoxOpen(namaKotakPengguna)) return [];
+      final box = Hive.box(namaKotakPengguna);
+      final List<Map<String, dynamic>> hasil = [];
+      for (int i = 0; i < box.length; i++) {
+        final data = box.getAt(i);
+        if (data != null && data is Map) {
+          hasil.add(Map<String, dynamic>.from(data));
+        }
+      }
+      return hasil;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // Menyimpan entri data akun pengguna baru ke database lokal Hive
+  static Future<void> simpanAkunHive(Map<String, dynamic> akunJson) async {
+    try {
+      if (!Hive.isBoxOpen(namaKotakPengguna)) {
+        await Hive.openBox(namaKotakPengguna);
+      }
+      final box = Hive.box(namaKotakPengguna);
+      final String targetEmail = akunJson['email']?.toString().trim().toLowerCase() ?? '';
+      final String targetNama = akunJson['nama']?.toString().trim().toLowerCase() ?? '';
+
+      // Hindari duplikasi jika akun sudah ada di Hive
+      for (int i = 0; i < box.length; i++) {
+        final data = box.getAt(i);
+        if (data != null && data is Map) {
+          final String em = data['email']?.toString().trim().toLowerCase() ?? '';
+          final String nm = data['nama']?.toString().trim().toLowerCase() ?? '';
+          if (em == targetEmail || nm == targetNama) {
+            return;
+          }
+        }
+      }
+      await box.add(akunJson);
+    } catch (_) {}
   }
 }

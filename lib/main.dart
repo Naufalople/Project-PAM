@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'layanan/layanan_basisdata_lokal.dart';
-import 'layanan/layanan_blockchain.dart';
+import 'layanan/layanan_rekber.dart';
 import 'layanan/layanan_otentikasi.dart';
 import 'layanan/layanan_notifikasi.dart';
 import 'tampilan/halaman_masuk.dart';
@@ -12,8 +12,8 @@ void main() async {
   // Inisialisasi Basis Data Lokal Hive (NoSQL)
   await LayananBasisDataLokal.inisialisasi();
 
-  // Inisialisasi Blok Awal Blockchain (Genesis Block)
-  await LayananBlockchain.inisialisasiBlockchain();
+  // Inisialisasi Sistem Keamanan Rekber (Escrow)
+  await LayananRekber.inisialisasi();
 
   // Inisialisasi Layanan Notifikasi Status Bar Sistem OS
   await LayananNotifikasi.inisialisasiNotifikasiSistem();

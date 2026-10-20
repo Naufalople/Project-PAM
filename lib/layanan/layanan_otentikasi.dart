@@ -4,6 +4,18 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../model/model_pengguna.dart';
+import 'layanan_basisdata_lokal.dart';
+
+// Hasil proses registrasi akun baru
+class HasilRegistrasi {
+  final bool berhasil;
+  final String? pesanError;
+
+  HasilRegistrasi({
+    required this.berhasil,
+    this.pesanError,
+  });
+}
 
 // Layanan Otentikasi Pengguna: Login, Registrasi, Enkripsi SHA-256, Sesi,
 // serta Penyimpanan Basis Data Akun (Pemesan & Pembeli/Traveler) Online & Lokal
@@ -19,6 +31,7 @@ class LayananOtentikasi {
   static const String _kunciDaftarAkun = 'daftar_akun_tersimpan';
   static const String _kunciEmailTerakhir = 'email_terakhir_masuk';
   static const String _kunciWaktuMasukBackground = 'waktu_masuk_background';
+  static const String _kunciDestinasiTraveler = 'destinasi_aktif_traveler';
   static const int batasMenitTimeout = 15;
 
   // Endpoint REST API Publik untuk Sinkronisasi Akun Lintas Perangkat
@@ -37,7 +50,7 @@ class LayananOtentikasi {
   static final List<ModelPengguna> _akunBawaanDatabase = [
     ModelPengguna(
       id: 1,
-      nama: 'Pemesan Jastip (Anda)',
+      nama: 'Siti Nurhaliza',
       email: 'pemesan@jastipgo.com',
       passwordHash: enkripsiPassword('password123'),
       nomorTelepon: '081234567890',
@@ -104,6 +117,11 @@ class LayananOtentikasi {
     final prefs = await SharedPreferences.getInstance();
     final String? dataDiPrefs = prefs.getString(_kunciDaftarAkun);
 
+    // Sinkronkan akun bawaan awal ke database lokal Hive
+    for (var akun in _akunBawaanDatabase) {
+      await LayananBasisDataLokal.simpanAkunHive(akun.keJson());
+    }
+
     if (dataDiPrefs == null || dataDiPrefs.isEmpty) {
       final String? cadangan = await _bacaCadanganEksternal();
 
@@ -112,6 +130,11 @@ class LayananOtentikasi {
         try {
           final List<dynamic> decoded = jsonDecode(cadangan);
           if (decoded.isNotEmpty) {
+            for (var item in decoded) {
+              if (item is Map) {
+                await LayananBasisDataLokal.simpanAkunHive(Map<String, dynamic>.from(item));
+              }
+            }
             final akunTerakhir = ModelPengguna.dariJson(decoded.last);
             await _simpanSesi(akunTerakhir);
             await prefs.setString(_kunciEmailTerakhir, akunTerakhir.email);
@@ -125,6 +148,15 @@ class LayananOtentikasi {
         await prefs.setString(_kunciDaftarAkun, stringJson);
         await _simpanCadanganEksternal(stringJson);
       }
+    } else {
+      try {
+        final List<dynamic> decoded = jsonDecode(dataDiPrefs);
+        for (var item in decoded) {
+          if (item is Map) {
+            await LayananBasisDataLokal.simpanAkunHive(Map<String, dynamic>.from(item));
+          }
+        }
+      } catch (_) {}
     }
   }
 
@@ -257,8 +289,77 @@ class LayananOtentikasi {
     return null;
   }
 
-  // Registrasi Akun Baru (Bisa Pemesan atau Pembeli/Traveler)
-  static Future<bool> daftarkanPenggunaBaru({
+  // ========================================================
+  // VALIDASI PENDAFTARAN & PENCEGAHAN DUPLIKASI EMAIL (TODO_VALIDASI_AKUN)
+  // ========================================================
+
+  /// Melakukan query pengecekan duplikasi akun ke database lokal (Hive & SharedPreferences)
+  /// serta database online REST API secara real-time sebelum registrasi.
+  /// Aturan Validasi:
+  /// - Fokus pengecekan duplikasi HANYA pada alamat EMAIL (Email harus unik).
+  /// - Penggunaan Username/Nama yang sama DIIZINKAN untuk alamat email yang berbeda.
+  /// - Mengembalikan pesan error jika email sudah ada di database:
+  ///   "Email sudah terdaftar, silakan gunakan email lain"
+  /// - Mengembalikan null jika email belum terdaftar (diizinkan daftar).
+  static Future<String?> periksaDuplikasiAkun({
+    required String email,
+    String? namaAtauUsername,
+  }) async {
+    final String cleanEmail = email.trim().toLowerCase();
+
+    if (cleanEmail.isEmpty) {
+      return 'Email wajib diisi.';
+    }
+
+    // 1. Query Pengecekan Duplikasi Email ke Database Lokal Hive (NoSQL)
+    final List<Map<String, dynamic>> akunHive = LayananBasisDataLokal.ambilSemuaAkunHive();
+    for (var akun in akunHive) {
+      final String em = akun['email']?.toString().trim().toLowerCase() ?? '';
+      if (em == cleanEmail) {
+        return 'Email sudah terdaftar, silakan gunakan email lain';
+      }
+    }
+
+    // 2. Query Pengecekan Duplikasi Email ke Database Lokal SharedPreferences & Cadangan Eksternal
+    final List<ModelPengguna> akunLokal = await ambilSemuaAkun();
+    for (var akun in akunLokal) {
+      final String em = akun.email.trim().toLowerCase();
+      if (em == cleanEmail) {
+        return 'Email sudah terdaftar, silakan gunakan email lain';
+      }
+    }
+
+    // 3. Query Pengecekan Duplikasi Email ke Database Online REST API Global Registry
+    try {
+      final resGet = await http
+          .get(Uri.parse('$_urlOnlineApi/$_idRegistriOnline'))
+          .timeout(const Duration(seconds: 4));
+
+      if (resGet.statusCode == 200) {
+        final Map<String, dynamic> body = jsonDecode(resGet.body);
+        final Map<String, dynamic> data =
+            body['data'] is Map<String, dynamic> ? Map<String, dynamic>.from(body['data']) : {};
+        if (data['users'] is List) {
+          final List<dynamic> users = data['users'];
+          for (var u in users) {
+            if (u is Map) {
+              final String em = u['email']?.toString().trim().toLowerCase() ?? '';
+              if (em == cleanEmail) {
+                return 'Email sudah terdaftar, silakan gunakan email lain';
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // Toleransi offline: jika tidak ada koneksi internet, validasi tetap aman oleh database lokal
+    }
+
+    return null; // Email baru dan belum terdaftar di database (Username/Nama boleh sama)
+  }
+
+  // Registrasi Akun Baru (Dengan Pengecekan Validasi Duplikat Menyeluruh)
+  static Future<HasilRegistrasi> prosesDaftarAkunBaru({
     required String nama,
     required String email,
     required String password,
@@ -266,16 +367,22 @@ class LayananOtentikasi {
     String peran = 'PEMESAN',
     String lokasi = 'Indonesia 🇮🇩',
   }) async {
+    // 1. Lakukan query pengecekan terlebih dahulu ke database lokal & online
+    final String? duplikasi = await periksaDuplikasiAkun(
+      email: email,
+      namaAtauUsername: nama,
+    );
+
+    // 2. Jika akun sudah ada di database:
+    // - Gagalkan proses registrasi secara langsung.
+    // - Jangan membuat entri data baru atau mengizinkan login otomatis.
+    if (duplikasi != null) {
+      return HasilRegistrasi(berhasil: false, pesanError: duplikasi);
+    }
+
+    // 3. Pendaftaran hanya berlanjut jika akun benar-benar baru dan belum tercatat di database
     final prefs = await SharedPreferences.getInstance();
     final List<ModelPengguna> semuaAkun = await ambilSemuaAkun();
-
-    // Cek apakah email sudah terdaftar secara lokal
-    final bool emailSudahAda = semuaAkun.any(
-      (akun) => akun.email.toLowerCase() == email.trim().toLowerCase(),
-    );
-    if (emailSudahAda) {
-      return false; // Email duplikat
-    }
 
     final int idBaru = DateTime.now().millisecondsSinceEpoch % 100000;
     final ModelPengguna akunBaru = ModelPengguna(
@@ -296,20 +403,43 @@ class LayananOtentikasi {
         semuaAkun.map((akun) => akun.keJson()).toList();
     final stringJson = jsonEncode(daftarJson);
 
-    // 1. Simpan ke Database SharedPreferences Lokal
+    // a. Simpan ke Database SharedPreferences Lokal
     await prefs.setString(_kunciDaftarAkun, stringJson);
 
-    // 2. Simpan ke Cadangan File Eksternal (anti-hilang)
+    // b. Simpan ke Cadangan File Eksternal (anti-hilang)
     await _simpanCadanganEksternal(stringJson);
 
-    // 3. Sinkronkan Kredensial Terenkripsi ke Database Online / REST API Backend
+    // c. Simpan ke Database Lokal Hive (kotak_pengguna)
+    await LayananBasisDataLokal.simpanAkunHive(akunBaru.keJson());
+
+    // d. Sinkronkan Kredensial Terenkripsi ke Database Online / REST API Backend
     _sinkronkanKeDatabaseOnline(akunBaru);
 
-    // 4. Langsung aktifkan sesi untuk akun yang baru didaftarkan ini
+    // e. Langsung aktifkan sesi untuk akun yang baru didaftarkan ini
     await _simpanSesi(akunBaru);
     await prefs.setString(_kunciEmailTerakhir, akunBaru.email);
 
-    return true;
+    return HasilRegistrasi(berhasil: true);
+  }
+
+  // Wrapper kompatibilitas untuk fungsi daftarkanPenggunaBaru
+  static Future<bool> daftarkanPenggunaBaru({
+    required String nama,
+    required String email,
+    required String password,
+    required String nomorTelepon,
+    String peran = 'PEMESAN',
+    String lokasi = 'Indonesia 🇮🇩',
+  }) async {
+    final hasil = await prosesDaftarAkunBaru(
+      nama: nama,
+      email: email,
+      password: password,
+      nomorTelepon: nomorTelepon,
+      peran: peran,
+      lokasi: lokasi,
+    );
+    return hasil.berhasil;
   }
 
   // Proses Login Pengguna (Online REST API dengan Fallback Database Lokal)
@@ -318,19 +448,20 @@ class LayananOtentikasi {
     required String password,
   }) async {
     final String hashInput = enkripsiPassword(password);
-    final String emailInput = email.trim().toLowerCase();
+    final String identitasInput = email.trim().toLowerCase();
 
     // 1. Validasi langsung ke Database Online / REST API secara Real-Time
-    final onlineAkun = await _validasiLoginOnline(emailInput, hashInput);
+    final onlineAkun = await _validasiLoginOnline(identitasInput, hashInput);
     if (onlineAkun != null) {
       // Simpan akun online ke lokal jika belum ada di perangkat ini
       final List<ModelPengguna> semuaAkun = await ambilSemuaAkun();
-      if (!semuaAkun.any((a) => a.email.toLowerCase() == emailInput)) {
+      if (!semuaAkun.any((a) => a.email.toLowerCase() == onlineAkun.email.toLowerCase())) {
         semuaAkun.add(onlineAkun);
         final prefs = await SharedPreferences.getInstance();
         final stringJson = jsonEncode(semuaAkun.map((a) => a.keJson()).toList());
         await prefs.setString(_kunciDaftarAkun, stringJson);
         await _simpanCadanganEksternal(stringJson);
+        await LayananBasisDataLokal.simpanAkunHive(onlineAkun.keJson());
       }
       await _simpanSesi(onlineAkun);
       final prefs = await SharedPreferences.getInstance();
@@ -341,7 +472,8 @@ class LayananOtentikasi {
     // 2. Fallback: Validasi pada Database Lokal (Offline Mode / Akun Bawaan)
     final List<ModelPengguna> semuaAkunLokal = await ambilSemuaAkun();
     for (var akun in semuaAkunLokal) {
-      if (akun.email.toLowerCase() == emailInput && akun.passwordHash == hashInput) {
+      if ((akun.email.toLowerCase() == identitasInput || akun.nama.toLowerCase() == identitasInput) &&
+          akun.passwordHash == hashInput) {
         await _simpanSesi(akun);
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_kunciEmailTerakhir, akun.email);
@@ -595,7 +727,56 @@ class LayananOtentikasi {
     await _simpanCadanganEksternal(stringJson);
   }
 
-  // Logout / Hapus sesi login
+  // ========================================================
+  // DESTINASI AKTIF TRAVELER & VALIDASI PEMESANAN (POIN 4)
+  // ========================================================
+
+  static const List<Map<String, String>> daftarDestinasiTersedia = [
+    {'nama': 'Jepang', 'bendera': '🇯🇵', 'kota': 'Tokyo / Ginza'},
+    {'nama': 'Korea Selatan', 'bendera': '🇰🇷', 'kota': 'Seoul / Myeongdong'},
+    {'nama': 'London (UK)', 'bendera': '🇬🇧', 'kota': 'London / Harrods'},
+    {'nama': 'Singapura', 'bendera': '🇸🇬', 'kota': 'Orchard Road'},
+    {'nama': 'China', 'bendera': '🇨🇳', 'kota': 'Shanghai'},
+  ];
+
+  static Future<String> ambilDestinasiAktifTraveler() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kunciDestinasiTraveler) ?? 'Jepang';
+  }
+
+  /// Memeriksa apakah Traveler diizinkan mengubah negara destinasinya.
+  /// Diizinkan HANYA JIKA tidak ada pesanan aktif (0 pesanan) ATAU semua pesanan sudah dikirim ke Indonesia (tahapStatus >= 4).
+  static bool dapatMengubahDestinasiTraveler({String? namaTraveler}) {
+    return !LayananBasisDataLokal.apakahAdaPesananBelumDikirim(namaTraveler: namaTraveler);
+  }
+
+  static Future<bool> simpanDestinasiAktifTraveler(String negara, {String? namaTraveler}) async {
+    if (LayananBasisDataLokal.apakahAdaPesananBelumDikirim(namaTraveler: namaTraveler)) {
+      return false; // Gagalkan proses: masih ada pesanan yang belum dikirim ke Indonesia
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kunciDestinasiTraveler, negara.trim());
+    return true;
+  }
+
+  static bool apakahNegaraSesuai(String negaraBarang, String destinasiTraveler) {
+    final b = negaraBarang.toLowerCase().trim();
+    final d = destinasiTraveler.toLowerCase().trim();
+
+    if (b == d) return true;
+    if (b.contains('jepang') && d.contains('jepang')) return true;
+    if (b.contains('korea') && d.contains('korea')) return true;
+    if ((b.contains('london') || b.contains('inggris') || b.contains('uk')) &&
+        (d.contains('london') || d.contains('inggris') || d.contains('uk'))) {
+      return true;
+    }
+    if (b.contains('singapura') && d.contains('singapura')) return true;
+    if (b.contains('china') && d.contains('china')) return true;
+
+    return false;
+  }
+
+  // Logout / Hapus sesi login & isolasi state akun (Poin 4: Bersihkan memori promo saat logout)
   static Future<void> keluarSesi() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kunciToken);
@@ -606,5 +787,8 @@ class LayananOtentikasi {
     await prefs.remove(_kunciFotoPengguna);
     await prefs.remove(_kunciPeranPengguna);
     await prefs.remove(_kunciLokasiPengguna);
+    // Poin 4: Bersihkan memori (clear state) promo saat pengguna logout agar promo tiap akun mandiri
+    LayananBasisDataLokal.bersihkanStatePromo();
+    // Catatan Poin 3: Data obrolan tetap persisten di database Hive dan tidak dihapus saat logout
   }
 }

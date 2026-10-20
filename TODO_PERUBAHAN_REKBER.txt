@@ -1,0 +1,18 @@
+================================================================================
+             DAFTAR PERUBAHAN: MIGRASI BLOCKCHAIN KE SISTEM REKBER
+================================================================================
+
+Tolong perbaiki dan implementasikan perubahan alur transaksi berikut pada codebase:
+
+--------------------------------------------------------------------------------
+1. MIGRASI FITUR BLOCKCHAIN MENJADI SISTEM REKBER (ESCROW)
+--------------------------------------------------------------------------------
+- Target File: Modul Pembayaran, Halaman Saldo Traveler, dan Layanan Transaksi
+- Masalah: Fitur blockchain awal kurang relevan dengan keamanan transaksi Jastip. Harus diubah menjadi sistem Rekening Bersama (Rekber / Escrow) agar uang pemesan aman.
+- Instruksi:
+  1. Hapus atau rombak UI/logika fitur Sertifikat Blockchain yang lama.
+  2. Implementasikan sistem "Saldo Rekber" pada sudut pandang (antarmuka) Traveler.
+  3. Terapkan logika penahanan dana: Saat Pemesan melakukan pembayaran, uang tersebut masuk ke sistem "Rekber" (Dana Tertahan) dan DILARANG untuk ditarik atau dicairkan oleh Traveler.
+  4. Tampilkan saldo yang ditahan ini pada dashboard Traveler agar mereka tahu uangnya sudah masuk ke sistem, tetapi belum bisa diambil.
+  5. Buat logika pelepasan dana (Release Fund): Uang di Rekber baru akan otomatis cair/berpindah ke "Saldo Aktif" Traveler HANYA JIKA Pemesan sudah mengonfirmasi bahwa produk telah sampai dan status pesanan berubah menjadi "Sudah Diterima".
+================================================================================

@@ -8,33 +8,52 @@ class ModelPesanChat {
   final DateTime waktu;
   final String idPemesan; // Identifikasi thread pemesan (email atau id akun)
   final String namaPemesan;
+  final String? userId; // User ID akun pemesan
   final String? idPesanan; // ID Pesanan titipan terkait
+  final String senderId; // ID Pengirim pesan (Poin 3)
+  final String receiverId; // ID Penerima pesan (Poin 3)
 
   ModelPesanChat({
     required this.id,
     required this.teks,
     this.adalahPengguna = true,
     this.pengirim = 'PEMESAN',
-    this.namaPengirim = 'Pemesan',
+    this.namaPengirim = 'Pengguna',
     required this.waktu,
     this.idPemesan = 'pemesan@jastipgo.com',
-    this.namaPemesan = 'Pemesan Jastip',
+    this.namaPemesan = 'Pemesan',
+    this.userId,
     this.idPesanan,
-  });
+    String? senderId,
+    String? receiverId,
+  })  : senderId = senderId ?? (pengirim == 'TRAVELER' ? '2' : (userId ?? idPemesan)),
+        receiverId = receiverId ?? (pengirim == 'TRAVELER' ? (userId ?? idPemesan) : '2');
 
   factory ModelPesanChat.dariMap(Map<dynamic, dynamic> map) {
+    final pengirimStr = map['pengirim']?.toString() ?? 'PEMESAN';
+    final idPemesanStr = map['idPemesan']?.toString() ?? 'pemesan@jastipgo.com';
+    final userIdStr = map['userId']?.toString();
+
+    final sId = map['senderId']?.toString() ??
+        (pengirimStr == 'TRAVELER' ? '2' : (userIdStr ?? idPemesanStr));
+    final rId = map['receiverId']?.toString() ??
+        (pengirimStr == 'TRAVELER' ? (userIdStr ?? idPemesanStr) : '2');
+
     return ModelPesanChat(
       id: map['id']?.toString() ?? '',
       teks: map['teks']?.toString() ?? '',
       adalahPengguna: map['adalahPengguna'] == true,
-      pengirim: map['pengirim']?.toString() ?? 'PEMESAN',
+      pengirim: pengirimStr,
       namaPengirim: map['namaPengirim']?.toString() ?? 'Pengguna',
       waktu: map['waktu'] != null
           ? DateTime.tryParse(map['waktu'].toString()) ?? DateTime.now()
           : DateTime.now(),
-      idPemesan: map['idPemesan']?.toString() ?? 'pemesan@jastipgo.com',
-      namaPemesan: map['namaPemesan']?.toString() ?? (map['pengirim'] == 'PEMESAN' ? (map['namaPengirim']?.toString() ?? 'Pemesan') : 'Pemesan Jastip'),
+      idPemesan: idPemesanStr,
+      namaPemesan: map['namaPemesan']?.toString() ?? (map['namaPengirim']?.toString() ?? 'Pemesan'),
+      userId: userIdStr,
       idPesanan: map['idPesanan']?.toString(),
+      senderId: sId,
+      receiverId: rId,
     );
   }
 
@@ -48,6 +67,9 @@ class ModelPesanChat {
       'waktu': waktu.toIso8601String(),
       'idPemesan': idPemesan,
       'namaPemesan': namaPemesan,
+      'senderId': senderId,
+      'receiverId': receiverId,
+      if (userId != null) 'userId': userId,
       if (idPesanan != null) 'idPesanan': idPesanan,
     };
   }

@@ -1,5 +1,7 @@
+import 'dart:math' as math;
 import '../model/model_barang_jastip.dart';
 import 'layanan_basisdata_lokal.dart';
+import 'layanan_api.dart';
 
 // Model Hasil Rekomendasi Algoritma AI (Collaborative Filtering & Content Similarity)
 class RekomendasiBarangAi {
@@ -390,16 +392,194 @@ class LayananAi {
   // 4. LLM CHATBOT (ASISTEN PINTAR JASTIP & REGULASI KOPER)
   // ========================================================
 
+  /// Instruksi Sistem (System Prompt) untuk membatasi ruang lingkup asisten AI
+  static const String instruksiSistemChatbotJastip =
+      'Anda adalah Asisten Cerdas JastipGo khusus layanan Jasa Titip (Jastip). '
+      'Konteks percakapan mencakup aturan barang bawaan jastip, regulasi koper, '
+      'bea cukai, pajak impor, IMEI, rekomendasi oleh-oleh luar negeri (Jepang, Korea, London, Singapura, China), '
+      'kurs mata uang asing, spesifikasi dan katalog produk/barang yang ada di aplikasi (termasuk informasi barang termahal, termurah, dan harga katalog), '
+      'serta fitur dan sistem transaksi aplikasi JastipGo. '
+      'Jika pertanyaan pengguna di luar konteks layanan Jastip dan data aplikasi, berikan jawaban penolakan baku.';
+
+  /// Respon penolakan baku saat pengguna menanyakan hal di luar topik aplikasi jastip
+  static const String pesanPenolakanDiLuarKonteks =
+      'Maaf, saya hanya bisa menjawab seputar aplikasi Jastip ini. Jika di luar itu, saya tidak memiliki kemampuan untuk menjawabnya.';
+
+  /// Mengambil data katalog produk yang aktif dari Hive lokal atau master seed
+  static List<ModelBarangJastip> ambilKatalogAktif() {
+    List<ModelBarangJastip> daftar = LayananBasisDataLokal.ambilSemuaKatalog();
+    if (daftar.isEmpty) {
+      daftar = LayananApi.buatKatalogAwalDatabase();
+    }
+    return daftar;
+  }
+
+  static String _formatNominalRupiah(int nominal) {
+    return nominal.toString().replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (m) => '${m[1]}.',
+        );
+  }
+
+  /// Validasi apakah pertanyaan pengguna masih berada dalam konteks layanan Jastip & data aplikasi
+  static bool apakahDalamKonteksJastip(String pertanyaan) {
+    final q = pertanyaan.toLowerCase().trim();
+    if (q.isEmpty) return false;
+
+    // Kata kunci penanda topik yang valid dalam ekosistem jastip & aplikasi
+    final kataKunciJastip = [
+      'jastip', 'titip', 'titipan', 'koper', 'belanja', 'toko', 'barang',
+      'termahal', 'termurah', 'paling mahal', 'paling murah', 'katalog', 'daftar barang',
+      'daftar produk', 'list barang', 'produk', 'spesifikasi', 'harga tertinggi', 'harga terendah',
+      'paling hemat', 'paling terjangkau',
+      'bea cukai', 'pajak', 'cukai', 'pmk', 'fob', '500', 'usd', 'kurs', 'mata uang',
+      'yen', 'jpy', 'won', 'krw', 'pound', 'gbp', 'dolar', 'sgd', 'yuan', 'cny', 'rupiah', 'idr',
+      'harga', 'biaya', 'ongkir', 'tarif', 'diskon', 'voucher', 'promo',
+      'imei', 'hp', 'gadget', 'iphone', 'android',
+      'jepang', 'tokyo', 'don quijote', 'ginza', 'shinjuku', 'akihabara', 'tokyo banana', 'gundam',
+      'korea', 'seoul', 'myeongdong', 'olive young', 'cosrx', 'k-pop', 'bts',
+      'london', 'uk', 'inggris', 'harrods', 'twinings', 'jo malone',
+      'singapura', 'singapore', 'orchard', 'irvins', 'charles & keith',
+      'china', 'shanghai', 'pop mart',
+      'pesan', 'pesanan', 'order', 'checkout', 'keranjang', 'batal', 'acc',
+      'traveler', 'pemesan', 'pembeli', 'chat', 'hub', 'cod', 'lbs', 'antar', 'kurir',
+      'blockchain', 'rekber', 'escrow', 'struk', 'verifikasi', 'keamanan',
+      'profil', 'biometrik', 'sidik jari', 'bantuan', 'fitur', 'aplikasi', 'jastipgo',
+      'halo', 'hai', 'hi', 'pagi', 'siang', 'sore', 'malam', 'assalamualaikum',
+      'terima kasih', 'makasih', 'thanks', 'siapa kamu', 'apa itu jastip',
+    ];
+
+    for (final kata in kataKunciJastip) {
+      if (q.contains(kata)) return true;
+    }
+
+    return false;
+  }
+
+  /// Alias untuk pemanggilan asisten cerdas jastip
+  static Future<String> tanyaAsistenJastip(String pertanyaan) => prosesPesanChatbot(pertanyaan);
+
   static Future<String> prosesPesanChatbot(String pertanyaan) async {
-    await Future.delayed(const Duration(milliseconds: 800));
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    // Validasi Poin 2: Jika di luar konteks jastip, berikan jawaban penolakan baku
+    if (!apakahDalamKonteksJastip(pertanyaan)) {
+      return pesanPenolakanDiLuarKonteks;
+    }
 
     final q = pertanyaan.toLowerCase();
+    final katalog = ambilKatalogAktif();
 
-    if (q.contains('bea cukai') || q.contains('pajak') || q.contains('aturan')) {
+    // ------------------------------------------------------------------------
+    // SUNTIKAN KONTEKS DATA KATALOG PRODUK APLIKASI JASTIPGO (POIN 2)
+    // Mampu menjawab spesifikasi, barang termahal, termurah, dan daftar katalog
+    // ------------------------------------------------------------------------
+    final bool tanyaTermahal = q.contains('termahal') ||
+        q.contains('paling mahal') ||
+        q.contains('harga tertinggi') ||
+        (q.contains('mahal') && (q.contains('barang') || q.contains('produk') || q.contains('aplikasi')));
+
+    final bool tanyaTermurah = q.contains('termurah') ||
+        q.contains('paling murah') ||
+        q.contains('harga terendah') ||
+        q.contains('paling hemat') ||
+        q.contains('paling terjangkau') ||
+        (q.contains('murah') && (q.contains('barang') || q.contains('produk') || q.contains('aplikasi')));
+
+    // 1. Pertanyaan Perbandingan Keduanya (Termahal & Termurah Sekaligus)
+    if (tanyaTermahal && tanyaTermurah && katalog.isNotEmpty) {
+      final termahal = katalog.reduce((a, b) => a.estimasiHargaIdr > b.estimasiHargaIdr ? a : b);
+      final termurah = katalog.reduce((a, b) => a.estimasiHargaIdr < b.estimasiHargaIdr ? a : b);
+
+      return '📊 **Analisis Data Katalog Aplikasi JastipGo:**\n\n'
+          '💎 **Barang Termahal di Aplikasi:**\n'
+          '• **Nama Produk:** ${termahal.namaBarang}\n'
+          '• **Harga:** Rp ${_formatNominalRupiah(termahal.estimasiHargaIdr)} (${termahal.hargaAsli.toStringAsFixed(0)} ${termahal.kodeMataUang})\n'
+          '• **Negara Asal:** ${termahal.benderaNegara} ${termahal.negara} (${termahal.namaToko})\n'
+          '• **Kategori:** ${termahal.kategori}\n'
+          '• **Deskripsi:** ${termahal.deskripsi}\n\n'
+          '🏷️ **Barang Termurah di Aplikasi:**\n'
+          '• **Nama Produk:** ${termurah.namaBarang}\n'
+          '• **Harga:** Rp ${_formatNominalRupiah(termurah.estimasiHargaIdr)} (${termurah.hargaAsli.toStringAsFixed(1)} ${termurah.kodeMataUang})\n'
+          '• **Negara Asal:** ${termurah.benderaNegara} ${termurah.negara} (${termurah.namaToko})\n'
+          '• **Kategori:** ${termurah.kategori}\n'
+          '• **Deskripsi:** ${termurah.deskripsi}\n\n'
+          '💡 Semua barang di atas dapat langsung Anda pesan melalui halaman Beranda dengan jaminan perlindungan dana Rekber Escrow!';
+    }
+
+    // 2. Pertanyaan Khusus Barang Termahal
+    if (tanyaTermahal && katalog.isNotEmpty) {
+      final urutMahal = List<ModelBarangJastip>.from(katalog)
+        ..sort((a, b) => b.estimasiHargaIdr.compareTo(a.estimasiHargaIdr));
+      final termahal = urutMahal.first;
+
+      final buffer = StringBuffer();
+      buffer.writeln('💎 **Barang Termahal di Aplikasi JastipGo:**\n');
+      buffer.writeln('Produk dengan harga tertinggi saat ini adalah **${termahal.namaBarang}** dengan harga **Rp ${_formatNominalRupiah(termahal.estimasiHargaIdr)}** (${termahal.hargaAsli.toStringAsFixed(0)} ${termahal.kodeMataUang}).');
+      buffer.writeln('• **Asal Negara:** ${termahal.benderaNegara} ${termahal.negara} (Toko: ${termahal.namaToko})');
+      buffer.writeln('• **Kategori:** ${termahal.kategori}');
+      buffer.writeln('• **Deskripsi:** ${termahal.deskripsi}\n');
+      buffer.writeln('📌 **3 Produk dengan Nilai Tertinggi di Aplikasi:**');
+      for (int i = 0; i < math.min(3, urutMahal.length); i++) {
+        final item = urutMahal[i];
+        buffer.writeln('${i + 1}. **${item.namaBarang}** - Rp ${_formatNominalRupiah(item.estimasiHargaIdr)} (${item.negara})');
+      }
+      return buffer.toString().trim();
+    }
+
+    // 3. Pertanyaan Khusus Barang Termurah
+    if (tanyaTermurah && katalog.isNotEmpty) {
+      final urutMurah = List<ModelBarangJastip>.from(katalog)
+        ..sort((a, b) => a.estimasiHargaIdr.compareTo(b.estimasiHargaIdr));
+      final termurah = urutMurah.first;
+
+      final buffer = StringBuffer();
+      buffer.writeln('🏷️ **Barang Termurah & Paling Terjangkau di Aplikasi JastipGo:**\n');
+      buffer.writeln('Produk dengan harga paling hemat saat ini adalah **${termurah.namaBarang}** dengan harga **Rp ${_formatNominalRupiah(termurah.estimasiHargaIdr)}** (${termurah.hargaAsli.toStringAsFixed(1)} ${termurah.kodeMataUang}).');
+      buffer.writeln('• **Asal Negara:** ${termurah.benderaNegara} ${termurah.negara} (Toko: ${termurah.namaToko})');
+      buffer.writeln('• **Kategori:** ${termurah.kategori}');
+      buffer.writeln('• **Deskripsi:** ${termurah.deskripsi}\n');
+      buffer.writeln('📌 **3 Produk Paling Hemat di Aplikasi:**');
+      for (int i = 0; i < math.min(3, urutMurah.length); i++) {
+        final item = urutMurah[i];
+        buffer.writeln('${i + 1}. **${item.namaBarang}** - Rp ${_formatNominalRupiah(item.estimasiHargaIdr)} (${item.negara})');
+      }
+      return buffer.toString().trim();
+    }
+
+    // 4. Pertanyaan Mengenai Daftar / Katalog Produk Aplikasi
+    if (q.contains('katalog') ||
+        q.contains('daftar barang') ||
+        q.contains('daftar produk') ||
+        q.contains('list barang') ||
+        q.contains('list produk') ||
+        q.contains('apa saja barang') ||
+        q.contains('ada barang apa')) {
+      final buffer = StringBuffer();
+      buffer.writeln('📦 **Daftar Ringkasan Katalog Produk JastipGo (${katalog.length} Produk Aktif):**\n');
+      final Map<String, List<ModelBarangJastip>> perNegara = {};
+      for (final b in katalog) {
+        perNegara.putIfAbsent('${b.benderaNegara} ${b.negara}', () => []).add(b);
+      }
+      perNegara.forEach((negara, listBrg) {
+        buffer.writeln('**$negara:**');
+        for (final b in listBrg) {
+          buffer.writeln('• ${b.namaBarang} - Rp ${_formatNominalRupiah(b.estimasiHargaIdr)} (${b.kategori})');
+        }
+        buffer.writeln('');
+      });
+      buffer.writeln('💡 Anda dapat memfilter produk berdasarkan negara singgah dan kategori di halaman Beranda!');
+      return buffer.toString().trim();
+    }
+
+    // ------------------------------------------------------------------------
+    // ATURAN RESMI, KOPER, KURS, & FITUR APLIKASI
+    // ------------------------------------------------------------------------
+    if (q.contains('bea cukai') || q.contains('pajak') || q.contains('aturan') || q.contains('cukai')) {
       return '📋 **Aturan Bea Cukai Impor Barang Penumpang:**\n'
           'Sesuai PMK 203/2017, batas pembebasan bea masuk barang bawaan pribadi adalah **FOB USD 500 per orang**. '
           'Jika total belanjaan jastip Anda melebihi USD 500, kelebihannya akan dikenakan tarif bea masuk flat 10% + PPN 11%. Pastikan traveler selalu menyimpan struk resmi ya!';
-    } else if (q.contains('imei') || q.contains('hp') || q.contains('iphone')) {
+    } else if (q.contains('imei') || q.contains('hp') || q.contains('iphone') || q.contains('gadget')) {
       return '📱 **Aturan Pendaftaran IMEI Gadget:**\n'
           'Untuk gadget/HP dari luar negeri (seperti iPhone atau Android), traveler wajib mendaftarkan IMEI di pos Bea Cukai bandara kedatangan. '
           'HP dengan harga di bawah USD 500 bebas pajak, sedangkan di atas USD 500 dikenakan PPh dan PPN.';
@@ -420,7 +600,17 @@ class LayananAi {
           '2. **Teh:** Twinings English Breakfast & Fortnum & Mason Tea.\n'
           '3. **Parfum:** Jo Malone London Wood Sage & Sea Salt.\n'
           'Perhatikan jam London (GMT), biasanya toko di Regent Street tutup pukul 18:00 sore!';
-    } else if (q.contains('kurs') || q.contains('uang') || q.contains('harga')) {
+    } else if (q.contains('singapura') || q.contains('singapore')) {
+      return '🇸🇬 **Rekomendasi Jastip Populer Singapura:**\n'
+          '1. **Kuliner:** Irvins Salted Egg Fish Skin, Bacha Coffee, Garrett Popcorn.\n'
+          '2. **Fashion:** Charles & Keith (Orchard Road / Bandara Changi).\n'
+          'Kurs saat ini: 1 SGD ≈ Rp 11.950.';
+    } else if (q.contains('china') || q.contains('shanghai')) {
+      return '🇨🇳 **Rekomendasi Jastip Populer China:**\n'
+          '1. **Hobi & Mainan:** Pop Mart Blind Box (Labubu, Skullpanda, Dimoo) di Shanghai Store.\n'
+          '2. **Kuliner:** Teh Melati Jasmine & Snack khas Yunnan.\n'
+          'Kurs saat ini: 1 CNY ≈ Rp 2.230.';
+    } else if (q.contains('kurs') || q.contains('uang') || q.contains('harga') || q.contains('yen') || q.contains('won') || q.contains('pound')) {
       return '💱 **Kurs Mata Uang Asing Hari Ini:**\n'
           '• 1 JPY (Yen Jepang) = Rp 112.5\n'
           '• 1 KRW (Won Korea) = Rp 11.8\n'
@@ -428,17 +618,24 @@ class LayananAi {
           '• 1 SGD (Dolar Singapura) = Rp 11.950\n'
           '• 1 CNY (Yuan China) = Rp 2.230\n'
           'Anda bisa menggunakan menu **Kalkulator Kurs** di tab Fitur Cerdas untuk kalkulasi instan!';
-    } else if (q.contains('cara titip') || q.contains('pesan') || q.contains('order')) {
+    } else if (q.contains('rekber') || q.contains('escrow') || q.contains('keamanan') || q.contains('dana')) {
+      return '🛡️ **Sistem Keamanan Rekber Escrow JastipGo:**\n'
+          '1. Saat Pemesan membayar, dana otomatis masuk ke sistem Rekber (Dana Tertahan) dan DILARANG untuk ditarik atau dicairkan oleh Traveler.\n'
+          '2. Traveler dapat memantau dana tertahan di dashboard, namun tidak dapat menariknya selama proses belanja & pengantaran.\n'
+          '3. Pelepasan Dana (Release Fund): Dana di Rekber otomatis cair ke Saldo Aktif Traveler HANYA JIKA Pemesan sudah mengonfirmasi "Sudah Diterima" bahwa produk telah sampai dengan baik.';
+    } else if (q.contains('cara titip') || q.contains('pesan') || q.contains('order') || q.contains('titip')) {
       return '🛒 **Cara Menitip Barang di JastipGo:**\n'
           '1. Pilih barang dari katalog Open PO atau temukan saran di fitur **Rekomendasi Cerdas AI** berdasarkan tren transaksi belanja.\n'
           '2. Masukkan ke Keranjang Belanja.\n'
           '3. Lakukan konfirmasi pembayaran dengan sidik jari.\n'
-          '4. Struk dan bukti pembelian Anda akan dienkripsi ke dalam **Blockchain** agar terjamin 100% original!';
+          '4. Pembayaran Anda dilindungi sistem Rekber Escrow hingga barang tiba dan dikonfirmasi diterima!';
     } else {
       return 'Halo! Saya **Asisten Cerdas JastipGo** 🤖\n'
           'Saya siap membantu Anda seputar:\n'
-          '• Aturan bea cukai & batas koper belanjaan luar negeri.\n'
+          '• Katalog produk, barang termahal & termurah di aplikasi JastipGo.\n'
+          '• Aturan bea cukai & batas koper belanjaan luar negeri (FOB USD 500).\n'
           '• Rekomendasi oleh-oleh terbaik dari Jepang, Korea, London, & Singapura.\n'
+          '• Keamanan transaksi Rekber Escrow (dana tertahan hingga barang sampai).\n'
           '• Cek kurs mata uang asing dan zona waktu toko internasional.\n'
           'Ada yang bisa saya bantu untuk rencana titipan Anda?';
     }

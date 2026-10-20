@@ -19,7 +19,7 @@ class LayananApi {
   static const String _urlKatalogApi = 'https://api.restful-api.dev/objects/ff808181a09d98f701a153a5bf76178b';
 
   // Seed data awal untuk inisialisasi basis data lokal Hive jika masih kosong
-  static List<ModelBarangJastip> _buatKatalogAwalDatabase() {
+  static List<ModelBarangJastip> buatKatalogAwalDatabase() {
     return [
       ModelBarangJastip(
         id: 1,
@@ -207,7 +207,7 @@ class LayananApi {
 
     // 2. Jika database lokal masih kosong pertama kali, inisialisasi dari seed awal
     if (dataLokal.isEmpty) {
-      dataLokal = _buatKatalogAwalDatabase();
+      dataLokal = buatKatalogAwalDatabase();
       await LayananBasisDataLokal.simpanSemuaKatalog(dataLokal);
     }
 

@@ -3,6 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../model/model_keranjang.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_konversi.dart';
+import '../layanan/layanan_otentikasi.dart';
 import 'halaman_checkout.dart';
 
 // Halaman Keranjang Belanja Titipan (Penyimpanan Lokal Offline Hive Reaktif)
@@ -281,7 +282,43 @@ class _HalamanKeranjangState extends State<HalamanKeranjang> {
                           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        onPressed: () {
+                        onPressed: () async {
+                          final destinasi = await LayananOtentikasi.ambilDestinasiAktifTraveler();
+                          final itemTidakCocok = daftarKeranjang.where(
+                            (item) => !LayananOtentikasi.apakahNegaraSesuai(item.negara, destinasi),
+                          ).toList();
+
+                          if (itemTidakCocok.isNotEmpty) {
+                            if (!context.mounted) return;
+                            showDialog(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                title: Row(
+                                  children: [
+                                    Icon(Icons.flight_land_rounded, color: Colors.deepOrange.shade700),
+                                    const SizedBox(width: 8),
+                                    const Expanded(
+                                      child: Text('Barang Luar Rute Terdeteksi', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                    ),
+                                  ],
+                                ),
+                                content: Text(
+                                  'Traveler saat ini hanya melayani rute perjalanan $destinasi.\n\nKeranjang Anda berisi ${itemTidakCocok.length} barang dari luar rute ($destinasi). Silakan hapus barang tersebut sebelum melanjutkan checkout.',
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text('Mengerti', style: TextStyle(fontWeight: FontWeight.bold)),
+                                  ),
+                                ],
+                              ),
+                            );
+                            return;
+                          }
+
+                          if (!context.mounted) return;
                           Navigator.push(
                             context,
                             MaterialPageRoute(

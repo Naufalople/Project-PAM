@@ -1,0 +1,16 @@
+================================================================================
+          DAFTAR PERBAIKAN FITUR CHAT INBOX, OSM MAPS, & VOICE SEARCH
+================================================================================
+
+1. SINKRONISASI NAMA PEMESAN DI INBOX TRAVELER (SUDUT PANDANG TRAVELER)
+   - Masalah: Dari sudut pandang traveler, di daftar inbox chat namanya masih muncul sebagai nama traveler (bukan nama pemesan). Ketika ruang chat dibuka, baru muncul nama pemesannya.
+   - Instruksi: Ubah tampilan di daftar inbox chat traveler agar menampilkan nama akun asli pemesan yang sedang chat ke traveler tersebut, bukan nama traveler dan bukan nama random.
+
+2. IMPLEMENTASI PETA INTERAKTIF OPENSTREETMAP (OSM) UNTUK TITIK COD
+   - Masalah: Peta saat ini masih menggunakan kartu/link navigasi luar atau belum interaktif.
+   - Instruksi: Gunakan OSM (OpenStreetMap, misalnya package flutter_map dengan TileLayer OpenStreetMap) agar titik lokasi saat ini dan titik tujuan COD (meetup points) dapat muncul dan dieksplorasi langsung di peta interaktif di dalam aplikasi.
+
+3. PENGGANTIAN SENSOR GYROSCOPE MENJADI SENSOR SUARA (MIKROFON / VOICE SEARCH)
+   - Masalah: Sensor gyroscope ingin diganti dengan sensor mikrofon / pengenalan suara.
+   - Instruksi: Hapus sensor gyroscope dan tambahkan fitur input sensor mikrofon (voice recognition / speech-to-text / pencarian suara) untuk mencari produk katalog berdasarkan ucapan suara pengguna di mic.
+================================================================================

@@ -6,6 +6,7 @@ import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_konversi.dart';
 import '../layanan/layanan_sensor.dart';
 import '../layanan/layanan_notifikasi.dart';
+import '../layanan/layanan_otentikasi.dart';
 
 // Halaman Sensor Akselerometer: "Goyang HP untuk Diskon Jastip" (Shake Promo)
 class HalamanShakePromo extends StatefulWidget {
@@ -80,8 +81,11 @@ class _HalamanShakePromoState extends State<HalamanShakePromo> with SingleTicker
     final random = Random();
     final voucherTerpilih = _daftarVoucher[random.nextInt(_daftarVoucher.length)];
 
-    // Simpan voucher ke Hive agar otomatis muncul di pilihan checkout & bisa dipakai
-    await LayananBasisDataLokal.simpanVoucher(voucherTerpilih);
+    final profil = await LayananOtentikasi.ambilProfilAktif();
+    final String userId = profil?.id != null ? profil!.id.toString() : '1';
+
+    // Simpan voucher dengan User ID akun yang sedang login ke Hive (Poin 4)
+    await LayananBasisDataLokal.simpanVoucher(voucherTerpilih, userId: userId);
 
     if (!mounted) return;
 

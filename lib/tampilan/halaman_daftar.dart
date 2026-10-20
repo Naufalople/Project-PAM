@@ -24,6 +24,7 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
 
   bool _sedangMemuat = false;
   bool _sembunyikanPassword = true;
+  String? _pesanErrorDuplikasi;
 
   @override
   void dispose() {
@@ -35,7 +36,7 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
     super.dispose();
   }
 
-  // Fungsi Proses Pendaftaran
+  // Fungsi Proses Pendaftaran dengan Pengecekan Akun Duplikat di Database
   Future<void> _prosesDaftar() async {
     if (!_formKunci.currentState!.validate()) return;
 
@@ -50,10 +51,39 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
       return;
     }
 
-    setState(() => _sedangMemuat = true);
+    setState(() {
+      _sedangMemuat = true;
+      _pesanErrorDuplikasi = null;
+    });
 
-    // Pendaftaran akun khusus untuk Pemesan (karena pembeli di LN cukup 1 orang tetap)
-    final bool berhasil = await LayananOtentikasi.daftarkanPenggunaBaru(
+    // 1. Query pengecekan terlebih dahulu ke database (Database Lokal Hive & Database Online REST API)
+    final String? duplikasi = await LayananOtentikasi.periksaDuplikasiAkun(
+      email: _emailController.text.trim(),
+      namaAtauUsername: _namaController.text.trim(),
+    );
+
+    // 2. Jika akun sudah ada di database, gagalkan proses registrasi secara langsung
+    if (duplikasi != null) {
+      setState(() {
+        _sedangMemuat = false;
+        _pesanErrorDuplikasi = duplikasi;
+      });
+
+      if (!mounted) return;
+
+      // Munculkan pesan peringatan/error yang jelas di UI: "Email sudah terdaftar, silakan gunakan email lain"
+      showDialog(
+        context: context,
+        builder: (context) => DialogPeringatan(
+          judul: 'Pendaftaran Ditolak',
+          deskripsi: duplikasi,
+        ),
+      );
+      return;
+    }
+
+    // 3. Pendaftaran hanya boleh berlanjut jika akun benar-benar baru dan belum tercatat di database
+    final HasilRegistrasi hasil = await LayananOtentikasi.prosesDaftarAkunBaru(
       nama: _namaController.text.trim(),
       email: _emailController.text.trim(),
       password: _passwordController.text,
@@ -66,13 +96,13 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
 
     if (!mounted) return;
 
-    if (berhasil) {
+    if (hasil.berhasil) {
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => DialogSukses(
           judul: 'Registrasi Berhasil! 🎉',
-          deskripsi: 'Selamat datang, ${_namaController.text.trim()}!\n\nData akun Anda:\n• Nama: ${_namaController.text.trim()}\n• WhatsApp: ${_teleponController.text.trim()}\n• Email: ${_emailController.text.trim()}\n\nAkun Anda telah dienkripsi dengan SHA-256 dan langsung aktif.',
+          deskripsi: 'Selamat datang, ${_namaController.text.trim()}!\n\nData akun Anda:\n• Nama / Username: ${_namaController.text.trim()}\n• WhatsApp: ${_teleponController.text.trim()}\n• Email: ${_emailController.text.trim()}\n\nAkun Anda telah dienkripsi dengan SHA-256 dan langsung aktif.',
           saatKlikOke: () {
             Navigator.pushAndRemoveUntil(
               context,
@@ -83,11 +113,16 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
         ),
       );
     } else {
+      final String pesanGagal = hasil.pesanError ?? 'Email sudah terdaftar, silakan gunakan email lain';
+      setState(() {
+        _pesanErrorDuplikasi = pesanGagal;
+      });
+
       showDialog(
         context: context,
-        builder: (context) => const DialogPeringatan(
-          judul: 'Email Terdaftar',
-          deskripsi: 'Alamat email ini sudah digunakan oleh akun lain. Silakan gunakan email lain.',
+        builder: (context) => DialogPeringatan(
+          judul: 'Pendaftaran Ditolak',
+          deskripsi: pesanGagal,
         ),
       );
     }
@@ -171,11 +206,62 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Nama Lengkap
+                      // Kotak Peringatan Error Duplikasi di UI
+                      if (_pesanErrorDuplikasi != null) ...[
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.red.shade400, width: 1.5),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 22),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Peringatan Email Terdaftar:',
+                                      style: TextStyle(
+                                        color: Colors.red.shade900,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _pesanErrorDuplikasi!,
+                                      style: TextStyle(
+                                        color: Colors.red.shade800,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      // Nama Lengkap / Username
                       TextFormField(
                         controller: _namaController,
+                        onChanged: (_) {
+                          if (_pesanErrorDuplikasi != null) {
+                            setState(() => _pesanErrorDuplikasi = null);
+                          }
+                        },
                         decoration: InputDecoration(
-                          labelText: 'Nama Lengkap',
+                          labelText: 'Nama Lengkap / Username',
+                          hintText: 'Contoh: Siti Nurhaliza atau siti123',
                           prefixIcon: const Icon(Icons.person_outline),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -196,8 +282,14 @@ class _HalamanDaftarState extends State<HalamanDaftar> {
                       TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
+                        onChanged: (_) {
+                          if (_pesanErrorDuplikasi != null) {
+                            setState(() => _pesanErrorDuplikasi = null);
+                          }
+                        },
                         decoration: InputDecoration(
                           labelText: 'Alamat Email',
+                          hintText: 'contoh@jastipgo.com',
                           prefixIcon: const Icon(Icons.email_outlined),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),

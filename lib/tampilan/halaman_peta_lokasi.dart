@@ -1,18 +1,48 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../layanan/layanan_notifikasi.dart';
 
-// Halaman LBS (Location Based Service) JastipGo:
-// 1. Integrasi GPS Nyata HP (Geolocator Stream)
-// 2. Panduan Rute Turn-by-Turn Lengkap Langsung di Dalam Aplikasi ala Google Maps
-// 3. HUD Navigasi Hijau Khas Google Maps dengan Hitung Mundur Jarak, Kecepatan, & Arah Kompas (Bearing)
-// 4. Mode Simulasi Perjalanan Langkah demi Langkah untuk Pengujian di Emulator/HP
-// 5. Opsi Buka Aplikasi Google Maps Eksternal
+/// Halaman LBS (Location Based Service) Titik Temu COD JastipGo:
+/// 1. Integrasi Peta Interaktif OpenStreetMap (OSM) via flutter_map & latlong2
+/// 2. Pelacakan Nyata GPS HP (Geolocator Stream) & perhitungan jarak dinamis
+/// 3. Visualisasi Tepat 2 Marker (Lokasi Pengguna & Titik COD Terpilih, tanpa garis polyline)
+/// 4. Navigasi Eksternal: Tombol "Arahkan dengan Google Maps" via url_launcher
 class HalamanPetaLokasi extends StatefulWidget {
-  const HalamanPetaLokasi({super.key});
+  final int indeksTitikAwal;
+
+  const HalamanPetaLokasi({super.key, this.indeksTitikAwal = 0});
+
+  /// Fungsi utilitas statis untuk menghitung jarak garis lurus via Geolocator.distanceBetween
+  static double hitungJarakLurusKm({
+    required double latAwal,
+    required double lngAwal,
+    required double latTujuan,
+    required double lngTujuan,
+  }) {
+    final double jarakMeter = Geolocator.distanceBetween(
+      latAwal,
+      lngAwal,
+      latTujuan,
+      lngTujuan,
+    );
+    return jarakMeter / 1000.0;
+  }
+
+  /// Format URL Google Maps Navigasi Eksternal sesuai standar spesifikasi:
+  /// https://www.google.com/maps/dir/?api=1&origin={lat_user},{lng_user}&destination={lat_cod},{lng_cod}
+  static String buatUrlNavigasiGoogleMaps({
+    required double latUser,
+    required double lngUser,
+    required double latCod,
+    required double lngCod,
+  }) {
+    return 'https://www.google.com/maps/dir/?api=1&origin=$latUser,$lngUser&destination=$latCod,$lngCod';
+  }
 
   @override
   State<HalamanPetaLokasi> createState() => _HalamanPetaLokasiState();
@@ -22,16 +52,11 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
   Position? _posisiPengguna;
   StreamSubscription<Position>? _langgananPosisi;
   bool _sedangMencariLokasi = false;
-  String _statusLokasi = 'Menunggu deteksi sinyal GPS HP...';
-  int _indeksTitikTerpilih = 0; // Default memilih Hub UPN Veteran Yogyakarta
+  String _statusLokasi = 'Menghubungkan sensor GPS HP...';
+  late int _indeksTitikTerpilih;
 
-  // Status Navigasi In-App Turn-by-Turn ala Google Maps
-  bool _sedangBernavigasi = false;
-  int _langkahNavigasiAktif = 0;
-  final double _kecepatanKmJam = 28.0;
   late AnimationController _animasiPulse;
-  Timer? _timerNavigasiOtomatis;
-  bool _navigasiOtomatisBerjalan = true;
+  final MapController _mapController = MapController();
 
   // Daftar Titik Temu / Cabang Hub Traveler JastipGo
   final List<Map<String, dynamic>> _daftarTitikTemu = [
@@ -45,21 +70,6 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
       'telepon': '081234567890',
       'estimasiWaktu': '7 Menit Berkendara',
       'jarakAwalKm': 1.6,
-      'rutePetunjuk': [
-        'Mulai dari posisi Anda saat ini',
-        'Lurus di Jl. Babarsari sejauh 400 meter',
-        'Belok kiri ke Jl. Ring Road Utara menuju Simpang UPN',
-        'Belok kiri ke Jl. SWK 104 Condongcatur',
-        'Tiba di Pos Serah Terima JastipGo UPN (Depan Gedung Rektorat)',
-      ],
-      'ikonPetunjuk': [
-        Icons.navigation_rounded,
-        Icons.straight_rounded,
-        Icons.turn_left_rounded,
-        Icons.turn_left_rounded,
-        Icons.flag_rounded,
-      ],
-      'jarakPerLangkahMeter': [400, 500, 450, 250, 0],
     },
     {
       'nama': 'Pick-up Hub Bandara Internasional YIA',
@@ -71,21 +81,6 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
       'telepon': '082198765432',
       'estimasiWaktu': '45 Menit Berkendara',
       'jarakAwalKm': 42.5,
-      'rutePetunjuk': [
-        'Mulai dari titik jemput keberangkatan',
-        'Ambil jalur Ring Road Barat menuju Jl. Wates',
-        'Lurus di Jl. Wates - Purworejo sejauh 35 km',
-        'Masuk area Drop Zone Terminal Kedatangan Internasional YIA',
-        'Tiba di Pos Koper JastipGo Counter 3B (Samping Pintu Keluar Bea Cukai)',
-      ],
-      'ikonPetunjuk': [
-        Icons.navigation_rounded,
-        Icons.turn_right_rounded,
-        Icons.straight_rounded,
-        Icons.turn_left_rounded,
-        Icons.flag_rounded,
-      ],
-      'jarakPerLangkahMeter': [2500, 35000, 4500, 500, 0],
     },
     {
       'nama': 'Drop-Off Center Malioboro Yogyakarta',
@@ -97,27 +92,13 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
       'telepon': '081377889900',
       'estimasiWaktu': '15 Menit Berkendara',
       'jarakAwalKm': 5.2,
-      'rutePetunjuk': [
-        'Mulai dari titik lokasi Anda',
-        'Melaju ke barat di Jl. Laksda Adisucipto',
-        'Belok kanan ke Jl. Malioboro melintasi Stasiun Tugu',
-        'Masuk jalur pedestrian Malioboro',
-        'Tiba di Pos JastipGo Tourist Center Malioboro',
-      ],
-      'ikonPetunjuk': [
-        Icons.navigation_rounded,
-        Icons.straight_rounded,
-        Icons.turn_right_rounded,
-        Icons.turn_left_rounded,
-        Icons.flag_rounded,
-      ],
-      'jarakPerLangkahMeter': [800, 3200, 800, 400, 0],
     },
   ];
 
   @override
   void initState() {
     super.initState();
+    _indeksTitikTerpilih = widget.indeksTitikAwal.clamp(0, _daftarTitikTemu.length - 1);
     _animasiPulse = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
@@ -128,13 +109,13 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
 
   @override
   void dispose() {
-    _timerNavigasiOtomatis?.cancel();
     _langgananPosisi?.cancel();
     _animasiPulse.dispose();
+    _mapController.dispose();
     super.dispose();
   }
 
-  // Mengambil Koordinat Nyata GPS HP & Memulai Stream Pemantauan Posisi
+  /// Mengambil Koordinat Nyata GPS HP & Memulai Stream Pemantauan Posisi Real-Time
   Future<void> _mulaiPemantauanGpsRealTime() async {
     setState(() {
       _sedangMencariLokasi = true;
@@ -142,58 +123,60 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
     });
 
     try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _terapkanFallbackKoordinat('Layanan GPS nonaktif. Menggunakan koordinat Kampus UPN.');
+        return;
+      }
+
       LocationPermission izin = await Geolocator.checkPermission();
       if (izin == LocationPermission.denied) {
         izin = await Geolocator.requestPermission();
       }
 
-      if (izin == LocationPermission.deniedForever) {
-        _terapkanFallbackKoordinat('Izin lokasi ditolak permanen. Menggunakan koordinat Kampus UPN.');
+      if (izin == LocationPermission.deniedForever || izin == LocationPermission.denied) {
+        _terapkanFallbackKoordinat('Izin lokasi tidak diberikan. Menggunakan koordinat Kampus UPN.');
         return;
       }
 
-      // Ambil posisi awal sekali
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 4),
-        ),
-      );
+      // Ambil posisi terakhir yang tersimpan untuk pemuatan instan
+      try {
+        final posTerakhir = await Geolocator.getLastKnownPosition();
+        if (posTerakhir != null && mounted) {
+          setState(() {
+            _posisiPengguna = posTerakhir;
+            _sedangMencariLokasi = false;
+            _statusLokasi = 'GPS Siap • ${posTerakhir.latitude.toStringAsFixed(4)}, ${posTerakhir.longitude.toStringAsFixed(4)}';
+          });
+        }
+      } catch (_) {}
 
-      if (!mounted) return;
-      setState(() {
-        _posisiPengguna = pos;
-        _sedangMencariLokasi = false;
-        _statusLokasi = 'GPS Aktif • Koordinat: ${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}';
-      });
-
-      // Stream posisi berkelanjutan real time
+      // Stream posisi berkelanjutan real-time (Geolocator.getPositionStream)
+      // DILARANG menggunakan getCurrentPosition() statis sesuai aturan sistem
+      _langgananPosisi?.cancel();
       _langgananPosisi = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
+          accuracy: LocationAccuracy.best,
           distanceFilter: 2, // Update setiap berpindah 2 meter
         ),
-      ).listen((posisiBaru) {
-        if (!mounted) return;
-        setState(() {
-          _posisiPengguna = posisiBaru;
-          _statusLokasi = 'GPS Live • ${posisiBaru.latitude.toStringAsFixed(4)}, ${posisiBaru.longitude.toStringAsFixed(4)}';
-
-          // Otomatisasi Real-Time GPS: Bergerak maju mengikuti posisi nyata HP tanpa harus klik
-          if (_sedangBernavigasi) {
-            final hub = _daftarTitikTemu[_indeksTitikTerpilih];
-            final jarakSisaKm = _hitungJarakKm(hub['lat'], hub['lng']);
-            final double jarakAwal = (hub['jarakAwalKm'] as num).toDouble();
-            final petunjuk = hub['rutePetunjuk'] as List<String>;
-
-            final double rasioSelesai = (1.0 - (jarakSisaKm / jarakAwal)).clamp(0.0, 1.0);
-            final int langkahHitung = (rasioSelesai * (petunjuk.length - 1)).floor();
-            if (langkahHitung > _langkahNavigasiAktif) {
-              _langkahNavigasiAktif = langkahHitung;
-            }
+      ).listen(
+        (posisiBaru) {
+          if (!mounted) return;
+          // Perbarui koordinat marker posisi pengguna secara real-time
+          // Jangan paksa kamera untuk selalu auto-center jika pengguna sedang menggeser peta
+          setState(() {
+            _posisiPengguna = posisiBaru;
+            _sedangMencariLokasi = false;
+            _statusLokasi = 'GPS Live • ${posisiBaru.latitude.toStringAsFixed(5)}, ${posisiBaru.longitude.toStringAsFixed(5)}';
+          });
+        },
+        onError: (err) {
+          debugPrint('Info getPositionStream: $err');
+          if (_posisiPengguna == null && mounted) {
+            _terapkanFallbackKoordinat('Menunggu sinyal GPS... Menggunakan koordinat Kampus UPN.');
           }
-        });
-      });
+        },
+      );
     } catch (_) {
       _terapkanFallbackKoordinat('Sensor GPS fisik tidak terdeteksi. Menggunakan koordinat Kampus UPN.');
     }
@@ -219,19 +202,18 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
     });
   }
 
-  // Hitung Jarak Garis Lurus Nyata
+  /// Hitung Jarak Nyata antara GPS HP dan Titik Temu COD (Geolocator.distanceBetween)
   double _hitungJarakKm(double latTujuan, double lngTujuan) {
     if (_posisiPengguna == null) return 1.5;
-    final jarakMeter = Geolocator.distanceBetween(
-      _posisiPengguna!.latitude,
-      _posisiPengguna!.longitude,
-      latTujuan,
-      lngTujuan,
+    return HalamanPetaLokasi.hitungJarakLurusKm(
+      latAwal: _posisiPengguna!.latitude,
+      lngAwal: _posisiPengguna!.longitude,
+      latTujuan: latTujuan,
+      lngTujuan: lngTujuan,
     );
-    return (jarakMeter / 1000);
   }
 
-  // Hitung Arah Sudut Kompas (Bearing) dari Pengguna ke Hub Tujuan
+  /// Hitung Sudut Kompas (Bearing) dari Pengguna ke Hub Tujuan
   double _hitungArahBearing(double latTujuan, double lngTujuan) {
     final double userLat = _posisiPengguna?.latitude ?? -7.7602;
     final double userLng = _posisiPengguna?.longitude ?? 110.4089;
@@ -251,128 +233,86 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
     return 'Barat Laut (NW)';
   }
 
-  // Memulai Mode Navigasi Turn-by-Turn Langsung di Dalam Aplikasi Secara Otomatis Real-Time (Audit Poin 3)
-  void _mulaiNavigasiDalamAplikasi() {
-    setState(() {
-      _sedangBernavigasi = true;
-      _langkahNavigasiAktif = 0;
-      _navigasiOtomatisBerjalan = true;
-    });
-
-    final hub = _daftarTitikTemu[_indeksTitikTerpilih];
-    LayananNotifikasi.kirimNotifikasi(
-      context,
-      judul: 'Navigasi In-App Real-Time Dimulai 🧭',
-      pesan: 'Mengarahkan rute perjalanan ke ${hub['nama']}. Pelacakan bergerak otomatis secara real-time.',
-      ikon: Icons.navigation_rounded,
-      warna: Colors.green.shade800,
-    );
-
-    _mulaiTimerOtomatis();
-  }
-
-  // Timer Pelacakan Real-Time Otomatis (Bergerak tanpa harus klik tombol manual)
-  void _mulaiTimerOtomatis() {
-    _timerNavigasiOtomatis?.cancel();
-    _timerNavigasiOtomatis = Timer.periodic(const Duration(milliseconds: 2800), (timer) {
-      if (!_sedangBernavigasi || !_navigasiOtomatisBerjalan) return;
-
-      final hub = _daftarTitikTemu[_indeksTitikTerpilih];
-      final petunjuk = hub['rutePetunjuk'] as List<String>;
-
-      if (_langkahNavigasiAktif < petunjuk.length - 1) {
-        if (!mounted) return;
-        setState(() {
-          _langkahNavigasiAktif++;
-        });
-
-        if (_langkahNavigasiAktif == petunjuk.length - 1) {
-          timer.cancel();
-          LayananNotifikasi.kirimNotifikasi(
-            context,
-            judul: 'Anda Telah Tiba di Titik Temu! 🏁',
-            pesan: 'Anda telah sampai di ${hub['nama']}. Silakan temui traveler ${hub['traveler']}.',
-            ikon: Icons.check_circle_rounded,
-            warna: Colors.green.shade800,
-          );
-        }
-      } else {
-        timer.cancel();
-      }
-    });
-  }
-
-  void _toggleNavigasiOtomatis() {
-    setState(() {
-      _navigasiOtomatisBerjalan = !_navigasiOtomatisBerjalan;
-    });
-    if (_navigasiOtomatisBerjalan) {
-      _mulaiTimerOtomatis();
-    } else {
-      _timerNavigasiOtomatis?.cancel();
-    }
-  }
-
-  // Maju ke Langkah Belokan Berikutnya (Manual Override)
-  void _simulasiLangkahBerikutnya() {
-    final hub = _daftarTitikTemu[_indeksTitikTerpilih];
-    final petunjuk = hub['rutePetunjuk'] as List<String>;
-
-    if (_langkahNavigasiAktif < petunjuk.length - 1) {
-      setState(() {
-        _langkahNavigasiAktif++;
-      });
-      if (_langkahNavigasiAktif == petunjuk.length - 1) {
-        _timerNavigasiOtomatis?.cancel();
-        LayananNotifikasi.kirimNotifikasi(
-          context,
-          judul: 'Anda Telah Tiba di Titik Temu! 🏁',
-          pesan: 'Anda telah sampai di ${hub['nama']}. Silakan temui traveler ${hub['traveler']}.',
-          ikon: Icons.check_circle_rounded,
-          warna: Colors.green.shade800,
-        );
-      }
-    } else {
-      _timerNavigasiOtomatis?.cancel();
-      setState(() {
-        _sedangBernavigasi = false;
-        _langkahNavigasiAktif = 0;
-      });
-    }
-  }
-
-  // Buka Google Maps Eksternal
+  /// Meluncurkan Aplikasi Google Maps Eksternal untuk Navigasi Nyata
   Future<void> _bukaNavigasiGoogleMaps(double latTujuan, double lngTujuan, String namaTujuan) async {
     final double userLat = _posisiPengguna?.latitude ?? -7.7602;
     final double userLng = _posisiPengguna?.longitude ?? 110.4089;
 
-    final Uri urlPeta = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1&origin=$userLat,$userLng&destination=$latTujuan,$lngTujuan&travelmode=driving',
+    final String urlString = HalamanPetaLokasi.buatUrlNavigasiGoogleMaps(
+      latUser: userLat,
+      lngUser: userLng,
+      latCod: latTujuan,
+      lngCod: lngTujuan,
     );
+    final Uri urlPeta = Uri.parse(urlString);
 
     try {
       final bool bisaBuka = await canLaunchUrl(urlPeta);
       if (bisaBuka) {
         await launchUrl(urlPeta, mode: LaunchMode.externalApplication);
       } else {
-        final Uri geoUri = Uri.parse('geo:$latTujuan,$lngTujuan?q=$latTujuan,$lngTujuan($namaTujuan)');
-        await launchUrl(geoUri, mode: LaunchMode.externalApplication);
+        await launchUrl(urlPeta, mode: LaunchMode.externalNonBrowserApplication);
       }
+
+      if (mounted) {
+        LayananNotifikasi.kirimNotifikasi(
+          context,
+          judul: 'Membuka Google Maps 🗺️',
+          pesan: 'Mengarahkan rute perjalanan sesungguhnya ke $namaTujuan.',
+          ikon: Icons.navigation_rounded,
+          warna: Colors.teal.shade800,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gagal membuka Google Maps secara otomatis.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Pusatkan kamera peta OSM ke koordinat tertentu
+  void _pusatkanKeLokasi(double lat, double lng, {double zoom = 14.5}) {
+    try {
+      _mapController.move(LatLng(lat, lng), zoom);
+    } catch (_) {}
+  }
+
+  /// Pusatkan kamera peta OSM ke lokasi GPS pengguna
+  void _pusatkanKePengguna() {
+    final double userLat = _posisiPengguna?.latitude ?? -7.7602;
+    final double userLng = _posisiPengguna?.longitude ?? 110.4089;
+    _pusatkanKeLokasi(userLat, userLng, zoom: 15.0);
+  }
+
+  /// Zoom In peta OSM
+  void _zoomIn() {
+    try {
+      final currentZoom = _mapController.camera.zoom;
+      _mapController.move(_mapController.camera.center, (currentZoom + 1).clamp(4.0, 18.0));
+    } catch (_) {}
+  }
+
+  /// Zoom Out peta OSM
+  void _zoomOut() {
+    try {
+      final currentZoom = _mapController.camera.zoom;
+      _mapController.move(_mapController.camera.center, (currentZoom - 1).clamp(4.0, 18.0));
     } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
     final hubTerpilih = _daftarTitikTemu[_indeksTitikTerpilih];
-    final jarakTerpilihKm = _hitungJarakKm(hubTerpilih['lat'], hubTerpilih['lng']);
-    final arahBearing = _hitungArahBearing(hubTerpilih['lat'], hubTerpilih['lng']);
+    final double jarakTerpilihKm = _hitungJarakKm(hubTerpilih['lat'], hubTerpilih['lng']);
+    final double arahBearing = _hitungArahBearing(hubTerpilih['lat'], hubTerpilih['lng']);
+    final double userLat = _posisiPengguna?.latitude ?? -7.7602;
+    final double userLng = _posisiPengguna?.longitude ?? 110.4089;
 
-    // TAMPILAN FULLSCREEN TURN-BY-TURN IN-APP NAVIGATION (ALA GOOGLE MAPS)
-    if (_sedangBernavigasi) {
-      return _bangunTampilanNavigasiGoogleMapsInApp(hubTerpilih, jarakTerpilihKm, arahBearing);
-    }
-
-    // TAMPILAN STANDAR DAFTAR HUB & PREVIEW LBS MAPS
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
       appBar: AppBar(
@@ -396,52 +336,77 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
           children: [
             // Status Deteksi GPS Pengguna
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: Colors.teal.shade100),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
                   Icon(
                     _sedangMencariLokasi ? Icons.gps_not_fixed : Icons.gps_fixed,
-                    size: 16,
+                    size: 18,
                     color: _sedangMencariLokasi ? Colors.orange : Colors.teal.shade700,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      _statusLokasi,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: _sedangMencariLokasi ? Colors.orange.shade800 : Colors.teal.shade900,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Sensor Lokasi Pengguna (GPS HP):',
+                          style: TextStyle(fontSize: 10.5, color: Colors.black54, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          _statusLokasi,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                            color: _sedangMencariLokasi ? Colors.orange.shade800 : Colors.teal.shade900,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   if (_sedangMencariLokasi)
                     const SizedBox(
-                      width: 12,
-                      height: 12,
+                      width: 14,
+                      height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    IconButton(
+                      icon: const Icon(Icons.refresh, size: 18, color: Colors.teal),
+                      tooltip: 'Refresh GPS',
+                      onPressed: _mulaiPemantauanGpsRealTime,
                     ),
                 ],
               ),
             ),
             const SizedBox(height: 14),
 
-            // KANVAS PETA VISUAL DENGAN RUTE AKTIF & KOMPAS
+            // ====================================================================
+            // WIDGET PETA INTERAKTIF OPENSTREETMAP (OSM)
+            // ====================================================================
             Container(
-              height: 230,
+              height: 310,
               width: double.infinity,
+              clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
-                color: const Color(0xFFE8ECEF),
+                color: const Color(0xFFE5ECE9),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.teal.shade300, width: 2),
+                border: Border.all(color: Colors.teal.shade400, width: 2),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
+                    color: Colors.teal.withValues(alpha: 0.12),
                     blurRadius: 14,
                     offset: const Offset(0, 6),
                   ),
@@ -449,157 +414,286 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
               ),
               child: Stack(
                 children: [
-                  // Pola Garis Jalan Peta
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: _PetaJalanPainter(arahBearing: arahBearing),
+                  // Peta Nyata OSM Menggunakan flutter_map & TileLayer OpenStreetMap
+                  FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: LatLng(userLat, userLng),
+                      initialZoom: 13.0,
+                      minZoom: 4.0,
+                      maxZoom: 18.0,
+                      interactionOptions: const InteractionOptions(
+                        flags: InteractiveFlag.all,
+                      ),
                     ),
+                    children: [
+                      // OpenStreetMap Standard Tile Layer
+                      TileLayer(
+                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.jastipgo.app',
+                        maxZoom: 19,
+                      ),
+
+                      // Marker Layer: Peta HANYA menampilkan Tepat 2 Marker
+                      // Marker A: Lokasi Real-time Pengguna (currentLocationMarker)
+                      // Marker B: Titik Lokasi COD / Serah Terima yang Dipilih
+                      // DILARANG menggambar garis polyline atau rute internal di atas peta
+                      MarkerLayer(
+                        markers: [
+                          // Marker A: Lokasi Pengguna Real-Time (GPS HP Live Pulse)
+                          Marker(
+                            key: const ValueKey('marker_pengguna_lbs'),
+                            point: LatLng(userLat, userLng),
+                            width: 90,
+                            height: 70,
+                            child: AnimatedBuilder(
+                              animation: _animasiPulse,
+                              builder: (context, child) {
+                                return Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.shade900,
+                                        borderRadius: BorderRadius.circular(6),
+                                        boxShadow: [
+                                          BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 4),
+                                        ],
+                                      ),
+                                      child: const Text(
+                                        'Lokasi Anda',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 8.5,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Container(
+                                      padding: const EdgeInsets.all(7),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.shade600,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 2.5),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.blue.withValues(alpha: 0.3 + (_animasiPulse.value * 0.4)),
+                                            blurRadius: 8 + (_animasiPulse.value * 6),
+                                            spreadRadius: 2,
+                                          ),
+                                        ],
+                                      ),
+                                      child: Transform.rotate(
+                                        angle: arahBearing * (math.pi / 180),
+                                        child: const Icon(Icons.navigation_rounded, color: Colors.white, size: 16),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ),
+
+                          // Marker B: Titik Lokasi COD / Serah Terima yang Dipilih
+                          Marker(
+                            key: const ValueKey('marker_titik_cod'),
+                            point: LatLng(hubTerpilih['lat'], hubTerpilih['lng']),
+                            width: 140,
+                            height: 75,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade900,
+                                    borderRadius: BorderRadius.circular(6),
+                                    boxShadow: [
+                                      BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 4),
+                                    ],
+                                  ),
+                                  child: Text(
+                                    hubTerpilih['nama'].toString().split(' ').take(3).join(' '),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade700,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2.5),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.red.withValues(alpha: 0.4),
+                                        blurRadius: 8,
+                                        spreadRadius: 1,
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(Icons.location_on, color: Colors.white, size: 20),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
 
-                  // Header Rute Aktif
+                  // Overlay Atas: Badge OpenStreetMap (OSM) & Kontrol Zoom
                   Positioned(
                     top: 10,
                     left: 10,
                     right: 10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.95),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 6),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.directions_car_rounded, color: Colors.teal, size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Rute: ${hubTerpilih['nama']}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Flexible(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                             decoration: BoxDecoration(
-                              color: Colors.teal.shade50,
-                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.teal.shade900.withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 4),
+                              ],
                             ),
-                            child: Text(
-                              '${jarakTerpilihKm.toStringAsFixed(1)} KM',
-                              style: TextStyle(
-                                color: Colors.teal.shade900,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 11,
-                              ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.map_rounded, size: 14, color: Colors.amberAccent),
+                                SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    'OpenStreetMap (OSM) Interaktif',
+                                    style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // Marker Posisi Pengguna dengan Animasi Denyut GPS
-                  Positioned(
-                    bottom: 35,
-                    left: 45,
-                    child: AnimatedBuilder(
-                      animation: _animasiPulse,
-                      builder: (context, child) {
-                        return Column(
+                        ),
+                        const SizedBox(width: 6),
+                        // Kontrol Zoom In / Zoom Out / Reset Kamera
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade600,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 3),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.blue.withValues(alpha: 0.2 + (_animasiPulse.value * 0.4)),
-                                    blurRadius: 10 + (_animasiPulse.value * 8),
-                                    spreadRadius: 2 + (_animasiPulse.value * 4),
-                                  ),
-                                ],
-                              ),
-                              child: Transform.rotate(
-                                angle: arahBearing * (math.pi / 180),
-                                child: const Icon(Icons.navigation_rounded, color: Colors.white, size: 16),
+                            InkWell(
+                              onTap: _zoomIn,
+                              child: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 4),
+                                  ],
+                                ),
+                                child: const Icon(Icons.add, size: 16, color: Colors.black87),
                               ),
                             ),
-                            const SizedBox(height: 2),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.black87,
-                                borderRadius: BorderRadius.circular(4),
+                            const SizedBox(width: 6),
+                            InkWell(
+                              onTap: _zoomOut,
+                              child: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 4),
+                                  ],
+                                ),
+                                child: const Icon(Icons.remove, size: 16, color: Colors.black87),
                               ),
-                              child: const Text('Posisi HP Anda', style: TextStyle(color: Colors.white, fontSize: 9.5)),
+                            ),
+                            const SizedBox(width: 6),
+                            InkWell(
+                              onTap: _pusatkanKePengguna,
+                              child: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 4),
+                                  ],
+                                ),
+                                child: const Icon(Icons.my_location, size: 16, color: Colors.teal),
+                              ),
                             ),
                           ],
-                        );
-                      },
-                    ),
-                  ),
-
-                  // Marker Titik Temu COD
-                  Positioned(
-                    top: 55,
-                    right: 40,
-                    child: Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.redAccent.shade700,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.red.withValues(alpha: 0.4),
-                                blurRadius: 10,
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
-                          child: const Icon(Icons.location_on, color: Colors.white, size: 20),
-                        ),
-                        const SizedBox(height: 2),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.redAccent.shade700,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text('Titik Temu COD', style: TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold)),
                         ),
                       ],
                     ),
                   ),
 
-                  // Info Arah Kompas (Bearing)
+                  // Overlay Bawah: Arah Kompas & Jarak Langsung
                   Positioned(
-                    bottom: 12,
-                    left: 12,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.explore_rounded, size: 14, color: Colors.teal),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Arah: ${_terjemahkanArahKompas(arahBearing)} (${arahBearing.toStringAsFixed(0)}°)',
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black87),
+                    bottom: 10,
+                    left: 10,
+                    right: 10,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Flexible(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.95),
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 4),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.explore_rounded, size: 14, color: Colors.teal),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    '${jarakTerpilihKm.toStringAsFixed(1)} KM • ${_terjemahkanArahKompas(arahBearing)}',
+                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black87),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.teal.shade200),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.pin_drop, size: 12, color: Colors.teal),
+                              SizedBox(width: 4),
+                              Text(
+                                '2 Marker (OSM LBS)',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.teal),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -607,760 +701,310 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
             ),
             const SizedBox(height: 14),
 
-            // TOMBOL UTAMA: MULAI NAVIGASI LANGSUNG DI DALAM APLIKASI
+            // ====================================================================
+            // KARTU PERHITUNGAN JARAK LURUS LBS (Geolocator.distanceBetween)
+            // ====================================================================
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.teal.shade800, Colors.teal.shade900],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(color: Colors.teal.withValues(alpha: 0.25), blurRadius: 10, offset: const Offset(0, 4)),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.navigation_rounded, color: Colors.amberAccent, size: 22),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'NAVIGASI TURN-BY-TURN IN-APP (ALA GOOGLE MAPS)',
-                          style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 0.5),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Anda dapat langsung bernavigasi ke titik temu di dalam aplikasi ini tanpa harus keluar membuka aplikasi Google Maps.',
-                    style: TextStyle(color: Colors.white70, fontSize: 11, height: 1.3),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.amberAccent,
-                            foregroundColor: Colors.black87,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          onPressed: _mulaiNavigasiDalamAplikasi,
-                          icon: const Icon(Icons.play_arrow_rounded, size: 22),
-                          label: const Text(
-                            'MULAI NAVIGASI DI APLIKASI',
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11.5),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-
-            // Petunjuk Belokan Demi Belokan
-            Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: Colors.teal.shade200),
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 3)),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.alt_route_rounded, color: Colors.teal.shade800, size: 20),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Panduan Rute Jalan Menuju Titik Temu:',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 18),
-                  ...List.generate(
-                    (hubTerpilih['rutePetunjuk'] as List<String>).length,
-                    (idx) {
-                      final petunjuk = (hubTerpilih['rutePetunjuk'] as List<String>)[idx];
-                      final IconData ikon = (hubTerpilih['ikonPetunjuk'] as List<IconData>)[idx];
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10.0),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: Colors.teal.shade50,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(ikon, size: 14, color: Colors.teal.shade800),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                petunjuk,
-                                style: const TextStyle(fontSize: 12, color: Colors.black87, height: 1.3),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+                  BoxShadow(
+                    color: Colors.teal.withValues(alpha: 0.05),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 20),
-
-            const Text(
-              'Pilih Pos Penyerahan / Titik Temu Terdekat:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
-            ),
-            const SizedBox(height: 10),
-
-            // Daftar Pilihan Titik Temu Hub JastipGo
-            ...List.generate(_daftarTitikTemu.length, (index) {
-              final hub = _daftarTitikTemu[index];
-              final jarak = _hitungJarakKm(hub['lat'], hub['lng']);
-              final bool sedangDipilih = _indeksTitikTerpilih == index;
-
-              return InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () => setState(() => _indeksTitikTerpilih = index),
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: sedangDipilih ? Colors.teal.shade700 : Colors.grey.shade200,
-                      width: sedangDipilih ? 2 : 1,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: sedangDipilih ? Colors.teal.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.04),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              hub['nama'],
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13.5,
-                                color: sedangDipilih ? Colors.teal.shade900 : Colors.black87,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.teal.shade50,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${jarak.toStringAsFixed(1)} KM',
-                              style: TextStyle(
-                                color: Colors.teal.shade900,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(hub['alamat'], style: const TextStyle(fontSize: 11, color: Colors.black54)),
-                      const Divider(height: 16),
-                      Row(
-                        children: [
-                          const Icon(Icons.person_pin, size: 15, color: Colors.teal),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              hub['traveler'],
-                              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${hub['status']} • Estimasi: ${hub['estimasiWaktu']}',
-                        style: const TextStyle(fontSize: 10.5, color: Colors.black45),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: sedangDipilih ? Colors.teal.shade800 : Colors.grey.shade200,
-                                foregroundColor: sedangDipilih ? Colors.white : Colors.black87,
-                                padding: const EdgeInsets.symmetric(vertical: 10),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                              onPressed: () {
-                                setState(() => _indeksTitikTerpilih = index);
-                                _mulaiNavigasiDalamAplikasi();
-                              },
-                              icon: const Icon(Icons.navigation_rounded, size: 16),
-                              label: const Text('Navigasi di Aplikasi', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.blue.shade800,
-                              side: BorderSide(color: Colors.blue.shade300),
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                            onPressed: () => _bukaNavigasiGoogleMaps(hub['lat'], hub['lng'], hub['nama']),
-                            icon: const Icon(Icons.map, size: 16),
-                            label: const Text('Maps Luar', style: TextStyle(fontSize: 10.5)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // WIDGET KHUSUS: TAMPILAN GOOGLE MAPS NAVIGATION HUD LENGKAP DI DALAM APLIKASI
-  Widget _bangunTampilanNavigasiGoogleMapsInApp(
-    Map<String, dynamic> hub,
-    double jarakKm,
-    double bearing,
-  ) {
-    final petunjukList = hub['rutePetunjuk'] as List<String>;
-    final ikonList = hub['ikonPetunjuk'] as List<IconData>;
-    final jarakLangkahList = hub['jarakPerLangkahMeter'] as List<int>;
-
-    final String petunjukSaatIni = petunjukList[_langkahNavigasiAktif];
-    final IconData ikonSaatIni = ikonList[_langkahNavigasiAktif];
-    final int jarakKeBelokanBerikutnya = jarakLangkahList[_langkahNavigasiAktif];
-
-    final String? petunjukSelanjutnya = (_langkahNavigasiAktif + 1 < petunjukList.length)
-        ? petunjukList[_langkahNavigasiAktif + 1]
-        : null;
-
-    final bool adalahLangkahTerakhir = _langkahNavigasiAktif >= petunjukList.length - 1;
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF1B2A32),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // TOP GREEN NAVIGATION HUD BAR (Khas Google Maps Turn-by-Turn Navigation)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              color: const Color(0xFF0F9D58), // Hijau Resmi Google Maps Navigation
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(ikonSaatIni, color: Colors.white, size: 36),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              adalahLangkahTerakhir
-                                  ? 'TIBA DI TUJUAN'
-                                  : 'Dalam $jarakKeBelokanBerikutnya m',
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              petunjukSaatIni,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                                height: 1.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (petunjukSelanjutnya != null) ...[
-                    const Divider(color: Colors.white24, height: 16),
-                    Row(
-                      children: [
-                        const Icon(Icons.subdirectory_arrow_right_rounded, color: Colors.white70, size: 16),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'Lalu: $petunjukSelanjutnya',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white70, fontSize: 11),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-
-            // LIVE MAP VIEW & DYNAMIC ROUTE CANVAS
-            Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: Container(
-                      color: const Color(0xFFE8ECEF),
-                      child: CustomPaint(
-                        painter: _PetaNavigasiAktifPainter(
-                          langkahAktif: _langkahNavigasiAktif,
-                          totalLangkah: petunjukList.length,
-                          animasi: _animasiPulse.value,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Floating Bearing Compass Pill di Atas Kiri
-                  Positioned(
-                    top: 14,
-                    left: 14,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.95),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 6),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Transform.rotate(
-                            angle: bearing * (math.pi / 180),
-                            child: const Icon(Icons.navigation_rounded, color: Colors.red, size: 16),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            '${bearing.toStringAsFixed(0)}° ${_terjemahkanArahKompas(bearing)}',
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // Floating Speed & Voice Pill di Atas Kanan
-                  Positioned(
-                    top: 14,
-                    right: 14,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.95),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 6),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.speed_rounded, color: Colors.teal, size: 16),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${_kecepatanKmJam.toStringAsFixed(0)} km/jam',
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // Tombol Simulasi Maju Langkah Demi Langkah (Untuk Demo/Pengujian Emulator & HP)
-                  Positioned(
-                    bottom: 16,
-                    left: 16,
-                    right: 16,
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.95),
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 10),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: BoxDecoration(
-                                      color: _navigasiOtomatisBerjalan ? Colors.green : Colors.orange,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _navigasiOtomatisBerjalan
-                                        ? 'Pelacakan Bergerak Real-Time 🟢'
-                                        : 'Mode Jeda / Manual ⏸️',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 11,
-                                      color: _navigasiOtomatisBerjalan ? Colors.green.shade800 : Colors.orange.shade900,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              Text(
-                                adalahLangkahTerakhir ? '🏁 Sampai' : 'Langkah ${_langkahNavigasiAktif + 1}/${petunjukList.length}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: adalahLangkahTerakhir ? Colors.green.shade800 : Colors.teal.shade800,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: LinearProgressIndicator(
-                              value: (_langkahNavigasiAktif + 1) / petunjukList.length,
-                              backgroundColor: Colors.grey.shade200,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                adalahLangkahTerakhir ? Colors.green : Colors.teal,
-                              ),
-                              minHeight: 6,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: _navigasiOtomatisBerjalan ? Colors.teal.shade800 : Colors.indigo.shade800,
-                                    side: BorderSide(
-                                      color: _navigasiOtomatisBerjalan ? Colors.teal.shade400 : Colors.indigo.shade400,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  ),
-                                  onPressed: _toggleNavigasiOtomatis,
-                                  icon: Icon(
-                                    _navigasiOtomatisBerjalan ? Icons.pause_circle_outline : Icons.play_circle_outline,
-                                    size: 16,
-                                  ),
-                                  label: Text(
-                                    _navigasiOtomatisBerjalan ? 'Jeda Otomatis' : 'Lanjut Otomatis',
-                                    style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: adalahLangkahTerakhir ? Colors.green.shade700 : Colors.teal.shade800,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  ),
-                                  onPressed: _simulasiLangkahBerikutnya,
-                                  icon: Icon(
-                                    adalahLangkahTerakhir ? Icons.check_circle : Icons.fast_forward_rounded,
-                                    size: 16,
-                                  ),
-                                  label: Text(
-                                    adalahLangkahTerakhir ? 'SELESAIKAN' : 'LONCAT LANGKAH',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10.5),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // BOTTOM NAVIGATION STATS BAR (Waktu Tempuh, Jarak, & Tombol Keluar)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-              color: Colors.white,
               child: Row(
                 children: [
-                  // Waktu & Jarak
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.straighten_rounded, color: Colors.teal.shade800, size: 20),
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Text(
-                              hub['estimasiWaktu'],
-                              style: const TextStyle(
-                                color: Color(0xFF0F9D58),
-                                fontSize: 18,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '(${jarakKm.toStringAsFixed(1)} km)',
-                              style: const TextStyle(fontSize: 13, color: Colors.black54, fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
                         Text(
-                          'Tujuan: ${hub['nama']}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          'Jarak ke titik temu: ${jarakTerpilihKm.toStringAsFixed(1)} km',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.teal.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Dihitung via GPS • Arah ${_terjemahkanArahKompas(arahBearing)} • Estimasi ${hubTerpilih['estimasiWaktu']}',
                           style: const TextStyle(fontSize: 11, color: Colors.black54),
                         ),
                       ],
                     ),
                   ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
 
-                  // Tombol Keluar Navigasi (Silang Merah Ala Google Maps)
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      shape: BoxShape.circle,
+            // ====================================================================
+            // TOMBOL UTAMA: ARAHKAN DENGAN GOOGLE MAPS (NAVIGASI EKSTERNAL)
+            // ====================================================================
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal.shade800,
+                  foregroundColor: Colors.white,
+                  elevation: 3,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: () => _bukaNavigasiGoogleMaps(
+                  hubTerpilih['lat'],
+                  hubTerpilih['lng'],
+                  hubTerpilih['nama'],
+                ),
+                icon: const Icon(Icons.map_rounded, size: 22, color: Colors.amberAccent),
+                label: const Text(
+                  'Arahkan dengan Google Maps',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // DAFTAR PILIHAN HUB LOKASI TITIK TEMU COD
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Pilih Titik Temu COD:',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                ),
+                Text(
+                  '${_daftarTitikTemu.length} Hub Tersedia',
+                  style: TextStyle(fontSize: 11, color: Colors.teal.shade800, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            // Kartu Pilihan Hub Titik Temu COD
+            Column(
+              children: List.generate(_daftarTitikTemu.length, (index) {
+                final hub = _daftarTitikTemu[index];
+                final bool terpilih = index == _indeksTitikTerpilih;
+                final double jarakKm = _hitungJarakKm(hub['lat'], hub['lng']);
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: terpilih ? Colors.teal.shade700 : Colors.grey.shade200,
+                      width: terpilih ? 2 : 1,
                     ),
-                    child: IconButton(
-                      tooltip: 'Tutup Navigasi',
-                      icon: const Icon(Icons.close_rounded, color: Colors.red, size: 26),
-                      onPressed: () {
-                        setState(() {
-                          _sedangBernavigasi = false;
-                          _langkahNavigasiAktif = 0;
-                        });
-                      },
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: terpilih ? 0.06 : 0.02),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () {
+                      setState(() {
+                        _indeksTitikTerpilih = index;
+                      });
+                      _pusatkanKeLokasi(hub['lat'], hub['lng']);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: terpilih ? Colors.teal.shade50 : Colors.grey.shade100,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              terpilih ? Icons.location_on : Icons.location_on_outlined,
+                              color: terpilih ? Colors.teal.shade800 : Colors.grey.shade600,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        hub['nama'],
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: terpilih ? Colors.teal.shade900 : Colors.black87,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    if (terpilih)
+                                      Container(
+                                        margin: const EdgeInsets.only(left: 6),
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.teal.shade700,
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: const Text(
+                                          'TERPILIH',
+                                          style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  hub['alamat'],
+                                  style: const TextStyle(fontSize: 11, color: Colors.black54),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(Icons.directions_car, size: 13, color: Colors.teal.shade700),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${jarakKm.toStringAsFixed(1)} KM dari posisi Anda',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.teal.shade800,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      hub['estimasiWaktu'],
+                                      style: const TextStyle(fontSize: 10.5, color: Colors.black54),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 10),
+
+            // RINCIAN HUB & TRAVELER YANG BERTUGAS
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.teal.shade100),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, size: 18, color: Colors.teal.shade800),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Informasi Serah Terima Hub:',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.teal.shade900),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 18),
+                  _bangunBarisInfo(Icons.person_pin_rounded, 'Traveler Bertugas', hubTerpilih['traveler']),
+                  const SizedBox(height: 8),
+                  _bangunBarisInfo(Icons.schedule_rounded, 'Jam Operasional', hubTerpilih['status']),
+                  const SizedBox(height: 8),
+                  _bangunBarisInfo(Icons.phone_in_talk_rounded, 'Kontak Petugas', hubTerpilih['telepon']),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.teal.shade800,
+                            side: BorderSide(color: Colors.teal.shade600),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () async {
+                            final Uri phoneUri = Uri.parse('tel:${hubTerpilih['telepon']}');
+                            if (await canLaunchUrl(phoneUri)) {
+                              await launchUrl(phoneUri);
+                            }
+                          },
+                          icon: const Icon(Icons.call, size: 16),
+                          label: const Text('Hubungi Petugas Hub', style: TextStyle(fontSize: 11.5)),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: 30),
           ],
         ),
       ),
     );
   }
-}
 
-// Custom Painter untuk Rute Standar
-class _PetaJalanPainter extends CustomPainter {
-  final double arahBearing;
-  _PetaJalanPainter({required this.arahBearing});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paintJalan = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 14
-      ..style = PaintingStyle.stroke;
-
-    final paintGarisTengah = Paint()
-      ..color = const Color(0xFFD6DBDF)
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
-
-    final paintRuteGoogleMaps = Paint()
-      ..color = const Color(0xFF1A73E8) // Biru Google Maps
-      ..strokeWidth = 6
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-
-    final jalanPath = Path()
-      ..moveTo(0, size.height * 0.7)
-      ..lineTo(size.width * 0.4, size.height * 0.7)
-      ..lineTo(size.width * 0.7, size.height * 0.3)
-      ..lineTo(size.width, size.height * 0.3);
-
-    canvas.drawPath(jalanPath, paintJalan);
-    canvas.drawPath(jalanPath, paintGarisTengah);
-
-    final rutePath = Path()
-      ..moveTo(65, size.height * 0.7)
-      ..lineTo(size.width * 0.4, size.height * 0.7)
-      ..lineTo(size.width * 0.7, size.height * 0.3)
-      ..lineTo(size.width - 60, size.height * 0.3);
-
-    canvas.drawPath(rutePath, paintRuteGoogleMaps);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-// Custom Painter untuk Live Navigation In-App Turn-by-Turn
-class _PetaNavigasiAktifPainter extends CustomPainter {
-  final int langkahAktif;
-  final int totalLangkah;
-  final double animasi;
-
-  _PetaNavigasiAktifPainter({
-    required this.langkahAktif,
-    required this.totalLangkah,
-    required this.animasi,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paintJalan = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 26
-      ..style = PaintingStyle.stroke;
-
-    final paintJalanBorder = Paint()
-      ..color = const Color(0xFFCFD8DC)
-      ..strokeWidth = 28
-      ..style = PaintingStyle.stroke;
-
-    final paintRuteLewat = Paint()
-      ..color = const Color(0xFFB0BEC5)
-      ..strokeWidth = 10
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-
-    final paintRuteAktif = Paint()
-      ..color = const Color(0xFF1E88E5) // Biru Navigasi
-      ..strokeWidth = 10
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-
-    // Koordinat Jalur Rute Dinamis
-    final p0 = Offset(size.width * 0.2, size.height * 0.8);
-    final p1 = Offset(size.width * 0.2, size.height * 0.55);
-    final p2 = Offset(size.width * 0.5, size.height * 0.55);
-    final p3 = Offset(size.width * 0.5, size.height * 0.3);
-    final p4 = Offset(size.width * 0.8, size.height * 0.3);
-
-    final List<Offset> points = [p0, p1, p2, p3, p4];
-
-    // Gambar Jalan
-    final pathJalan = Path()
-      ..moveTo(p0.dx, p0.dy)
-      ..lineTo(p1.dx, p1.dy)
-      ..lineTo(p2.dx, p2.dy)
-      ..lineTo(p3.dx, p3.dy)
-      ..lineTo(p4.dx, p4.dy);
-
-    canvas.drawPath(pathJalan, paintJalanBorder);
-    canvas.drawPath(pathJalan, paintJalan);
-
-    // Hitung Posisi Pengguna Saat Ini Berdasarkan Progres Langkah
-    final double fraction = points.isNotEmpty ? (langkahAktif / (totalLangkah - 1)).clamp(0.0, 1.0) : 0.0;
-    final int segmentIndex = (fraction * (points.length - 1)).floor().clamp(0, points.length - 2);
-    final double segmentFraction = (fraction * (points.length - 1)) - segmentIndex;
-
-    final startPoint = points[segmentIndex];
-    final endPoint = points[segmentIndex + 1];
-
-    final currentPos = Offset(
-      startPoint.dx + (endPoint.dx - startPoint.dx) * segmentFraction,
-      startPoint.dy + (endPoint.dy - startPoint.dy) * segmentFraction,
+  Widget _bangunBarisInfo(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: Colors.teal.shade700),
+        const SizedBox(width: 8),
+        Text('$label: ', style: const TextStyle(fontSize: 11.5, color: Colors.black54)),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.black87),
+          ),
+        ),
+      ],
     );
-
-    // Gambar Rute yang Sudah Dilewati
-    final pathLewat = Path()..moveTo(p0.dx, p0.dy);
-    for (int i = 1; i <= segmentIndex; i++) {
-      pathLewat.lineTo(points[i].dx, points[i].dy);
-    }
-    pathLewat.lineTo(currentPos.dx, currentPos.dy);
-    canvas.drawPath(pathLewat, paintRuteLewat);
-
-    // Gambar Sisa Rute Aktif
-    final pathAktif = Path()..moveTo(currentPos.dx, currentPos.dy);
-    for (int i = segmentIndex + 1; i < points.length; i++) {
-      pathAktif.lineTo(points[i].dx, points[i].dy);
-    }
-    canvas.drawPath(pathAktif, paintRuteAktif);
-
-    // Gambar Titik Temu Tujuan (Pin Merah)
-    final paintPin = Paint()..color = Colors.redAccent.shade700;
-    canvas.drawCircle(p4, 12, paintPin);
-    final paintPinInner = Paint()..color = Colors.white;
-    canvas.drawCircle(p4, 5, paintPinInner);
-
-    // Gambar Indikator Posisi Mobil / Pengguna yang Sedang Berjalan
-    final paintPulsing = Paint()
-      ..color = Colors.blue.withValues(alpha: 0.2 + (animasi * 0.4))
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(currentPos, 20 + (animasi * 8), paintPulsing);
-
-    final paintUser = Paint()..color = const Color(0xFF1E88E5);
-    canvas.drawCircle(currentPos, 10, paintUser);
-
-    final paintUserBorder = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke;
-    canvas.drawCircle(currentPos, 10, paintUserBorder);
   }
-
-  @override
-  bool shouldRepaint(covariant _PetaNavigasiAktifPainter oldDelegate) => true;
 }

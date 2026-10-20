@@ -1,0 +1,57 @@
+================================================================================
+          DAFTAR PERBAIKAN SENSOR, CHATBOT, CHAT, LBS, & STATUS PESANAN
+================================================================================
+
+Tolong perbaiki dan implementasikan 5 poin perbaikan berikut pada codebase:
+
+--------------------------------------------------------------------------------
+1. PERBAIKAN SENSOR GYROSCOPE (TIDAK BERFUNGSI)
+--------------------------------------------------------------------------------
+- Target File: Layanan Sensor / Halaman yang menggunakan Gyroscope
+- Masalah: Fitur sensor gyroscope saat ini error atau tidak memberikan respons pada UI.
+- Instruksi:
+  1. Lakukan debugging pada package sensor (misal: `sensors_plus`).
+  2. Pastikan event listener stream gyroscope (x, y, z) terhubung dengan benar ke State UI.
+  3. Perbaiki logikanya hingga efek visual yang bergantung pada gyroscope (misalnya efek 3D tilt pada gambar) dapat berjalan mulus.
+
+--------------------------------------------------------------------------------
+2. PEMBATASAN KONTEKS CHATBOT AI (OUT-OF-SCOPE FALLBACK)
+--------------------------------------------------------------------------------
+- Target File: Modul LLM / layanan_ai.dart / halaman_chatbot.dart
+- Masalah: Chatbot masih menjawab pertanyaan yang tidak ada hubungannya dengan aplikasi.
+- Instruksi:
+  1. Tambahkan instruksi sistem (system prompt) yang membatasi konteks AI khusus untuk layanan Jastip (Jasa Titip).
+  2. Buat kondisi validasi: Jika pengguna menanyakan hal di luar topik aplikasi, paksa AI untuk memberikan jawaban penolakan baku.
+  3. Contoh output penolakan: "Maaf, saya hanya bisa menjawab seputar aplikasi Jastip ini. Jika di luar itu, saya tidak memiliki kemampuan untuk menjawabnya."
+
+--------------------------------------------------------------------------------
+3. SINKRONISASI & PERSISTENSI DATA CHAT (PEMESAN - TRAVELER)
+--------------------------------------------------------------------------------
+- Target File: Modul Chat, Layanan Database (Lokal/Online), dan Manajemen State
+- Masalah: Chat hilang setelah ganti akun, dan pesan dari Pemesan tidak masuk/tidak terbaca di akun Traveler yang dituju.
+- Instruksi:
+  1. Perbaiki logika penyimpanan chat. Pastikan setiap pesan menyimpan data `senderId` (Pengirim) dan `receiverId` (Penerima).
+  2. Saat akun Traveler login, muat seluruh pesan di database di mana `receiverId` cocok dengan ID Traveler tersebut.
+  3. Pastikan data obrolan bersifat persisten (tetap ada di database) meskipun pengguna logout dan login kembali ke akun tersebut.
+
+--------------------------------------------------------------------------------
+4. INTEGRASI LBS PADA METODE PENGIRIMAN (COD / AMBIL SENDIRI)
+--------------------------------------------------------------------------------
+- Target File: Halaman Checkout / Serah Terima Barang dan Layanan LBS
+- Masalah: Penempatan LBS belum terhubung dengan alur COD dan pencarian titik terdekat.
+- Instruksi:
+  1. Pindahkan akses fitur Peta/LBS ke bagian pemilihan metode serah terima barang (khusus opsi "COD / Ambil Sendiri").
+  2. Tampilkan beberapa daftar lokasi titik temu (meetup points) yang sudah ditetapkan di peta.
+  3. Dapatkan koordinat GPS real-time pengguna, lalu hitung jarak ke setiap titik temu.
+  4. Urutkan dan rekomendasikan titik temu yang letaknya paling dekat dengan lokasi fisik pengguna saat itu.
+
+--------------------------------------------------------------------------------
+5. PEMBARUAN STATUS PENERIMAAN PESANAN (BELUM / SUDAH DITERIMA)
+--------------------------------------------------------------------------------
+- Target File: Modul Pelacakan Pesanan, Layanan Database Pesanan, Halaman Detail Pesanan
+- Masalah: Belum ada pembagian status yang jelas antara barang yang sedang diantar dan yang sudah sampai di tangan pemesan.
+- Instruksi:
+  1. Pisahkan daftar atau filter riwayat pesanan menjadi dua kategori status utama: "Belum Diterima" dan "Sudah Diterima".
+  2. Sediakan tombol atau aksi konfirmasi penerimaan barang untuk Pemesan ("Pesanan Diterima") ketika barang sudah diantar.
+  3. Setelah dikonfirmasi, ubah status pesanan tersebut di database sehingga otomatis berpindah dari daftar "Belum Diterima" menjadi "Sudah Diterima".
+================================================================================

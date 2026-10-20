@@ -1,12 +1,8 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:sensors_plus/sensors_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../model/model_barang_jastip.dart';
 import '../model/model_keranjang.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_konversi.dart';
-import '../layanan/layanan_sensor.dart';
 import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_ai.dart';
 import '../layanan/layanan_api.dart';
@@ -14,7 +10,7 @@ import 'halaman_checkout.dart';
 import 'halaman_chat_traveler.dart';
 import '../layanan/layanan_otentikasi.dart';
 
-// Halaman Detail Barang Jastip dengan Sensor Giroskop (3D Tilt) & Komunikasi WhatsApp
+// Halaman Detail Barang Jastip & Rekomendasi Cerdas AI
 class HalamanDetailBarang extends StatefulWidget {
   final ModelBarangJastip barang;
 
@@ -25,12 +21,6 @@ class HalamanDetailBarang extends StatefulWidget {
 }
 
 class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
-  // Variabel untuk Sensor Giroskop (Kemiringan 3D)
-  StreamSubscription<GyroscopeEvent>? _langgananGiroskop;
-  double _sudutRotasiX = 0.0;
-  double _sudutRotasiY = 0.0;
-  bool _aktifkanSensor3D = true;
-
   // Variabel Rekomendasi Cerdas AI (Content-Based & Jaccard Similarity)
   List<RekomendasiBarangAi> _daftarRekomendasi = [];
   bool _memuatRekomendasi = true;
@@ -39,7 +29,6 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
   @override
   void initState() {
     super.initState();
-    _inisialisasiSensorGiroskop();
     _muatRekomendasiAi();
     _muatPeran();
   }
@@ -69,60 +58,44 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
     }
   }
 
-  @override
-  void dispose() {
-    _langgananGiroskop?.cancel();
-    super.dispose();
-  }
-
-  // Mengaktifkan Sensor Giroskop untuk Efek Visual Kemiringan 3D
-  void _inisialisasiSensorGiroskop() {
-    _langgananGiroskop = LayananSensor.dengarkanKemiringanHp(
-      saatMiring: (double x, double y, double z) {
-        if (_aktifkanSensor3D && mounted) {
-          setState(() {
-            // Skalakan rotasi agar pergerakan halus (clamped)
-            _sudutRotasiX = (x * 0.05).clamp(-0.15, 0.15);
-            _sudutRotasiY = (y * 0.05).clamp(-0.15, 0.15);
-          });
-        }
-      },
+  // Tampilkan Dialog Penolakan Jika Rute Destinasi Tidak Sesuai (Poin 4.2)
+  void _tampilkanDialogRuteBeda(String destinasi) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.flight_land_rounded, color: Colors.deepOrange.shade700),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text('Rute Berbeda', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+        content: Text(
+          'Traveler saat ini sedang aktif ditugaskan pada rute perjalanan $destinasi.\n\nAnda hanya dapat memesan atau menitip produk yang berasal dari $destinasi untuk rute ini.',
+          style: const TextStyle(fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Mengerti', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
     );
   }
 
-  // Komunikasi Langsung: Membuka WhatsApp Traveler
-  Future<void> _hubungiTravelerViaWhatsApp() async {
-    final String nomorHp = '6281234567890';
-    final String pesan = Uri.encodeComponent(
-      'Halo Kak Traveler JastipGo! Saya tertarik untuk menitip barang "${widget.barang.namaBarang}" dari ${widget.barang.negara}. Apakah slot koper masih tersedia?',
-    );
-    final Uri urlWa = Uri.parse('https://wa.me/$nomorHp?text=$pesan');
-
-    try {
-      if (await canLaunchUrl(urlWa)) {
-        await launchUrl(urlWa, mode: LaunchMode.externalApplication);
-      } else {
-        if (!mounted) return;
-        LayananNotifikasi.kirimNotifikasi(
-          context,
-          judul: 'Gagal Membuka WhatsApp',
-          pesan: 'Tidak dapat membuka aplikasi WhatsApp secara langsung.',
-          warna: Colors.red,
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      LayananNotifikasi.kirimNotifikasi(
-        context,
-        judul: 'Pesan Terkirim',
-        pesan: 'Permintaan chat ke traveler berhasil disiapkan: $nomorHp',
-        warna: Colors.green,
-      );
-    }
-  }
-
-  // Tambah ke Keranjang Lokal Hive
+  // Tambah ke Keranjang Lokal Hive dengan Validasi Destinasi Aktif Traveler (Poin 4)
   Future<void> _tambahKeKeranjang() async {
+    final destinasi = await LayananOtentikasi.ambilDestinasiAktifTraveler();
+    if (!LayananOtentikasi.apakahNegaraSesuai(widget.barang.negara, destinasi)) {
+      if (!mounted) return;
+      _tampilkanDialogRuteBeda(destinasi);
+      return;
+    }
+
     final item = ModelKeranjang(
       idBarang: widget.barang.id,
       namaBarang: widget.barang.namaBarang,
@@ -156,72 +129,26 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
         backgroundColor: Colors.teal.shade800,
         foregroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          IconButton(
-            tooltip: 'Mode Sensor Kemiringan 3D',
-            icon: Icon(_aktifkanSensor3D ? Icons.screen_rotation : Icons.screen_lock_rotation),
-            onPressed: () {
-              setState(() {
-                _aktifkanSensor3D = !_aktifkanSensor3D;
-                _sudutRotasiX = 0;
-                _sudutRotasiY = 0;
-              });
-            },
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Preview Gambar Interaktif dengan Efek Kemiringan Giroskop
+            // Preview Gambar Produk Jastip
             Container(
               width: double.infinity,
               height: 280,
               color: Colors.black,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Transform(
-                    transform: Matrix4.identity()
-                      ..setEntry(3, 2, 0.001) // Efek perspektif 3D
-                      ..rotateX(_sudutRotasiX)
-                      ..rotateY(_sudutRotasiY),
-                    alignment: FractionalOffset.center,
-                    child: Image.network(
-                      widget.barang.fotoUrl,
-                      height: 280,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        height: 280,
-                        color: Colors.grey.shade300,
-                        child: const Icon(Icons.broken_image, size: 64, color: Colors.grey),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 12,
-                    right: 12,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.sensors, color: Colors.teal.shade300, size: 16),
-                          const SizedBox(width: 6),
-                          const Text(
-                            'Giroskop 3D Aktif (Miringkan HP)',
-                            style: TextStyle(color: Colors.white, fontSize: 11),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+              child: Image.network(
+                widget.barang.fotoUrl,
+                height: 280,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 280,
+                  color: Colors.grey.shade300,
+                  child: const Icon(Icons.broken_image, size: 64, color: Colors.grey),
+                ),
               ),
             ),
 
@@ -403,67 +330,49 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Pilihan Komunikasi Antara Pembeli & Traveler
-                  const Text(
-                    'Komunikasi dengan Traveler:',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
-                  ),
-                  const SizedBox(height: 10),
+                  // Pilihan Komunikasi Antara Pembeli & Traveler (Hanya untuk Pemesan - Poin 1)
+                  if (_peranAktif != 'TRAVELER') ...[
+                    const Text(
+                      'Komunikasi dengan Traveler:',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
+                    ),
+                    const SizedBox(height: 10),
 
-                  // 1. Live Chat di Dalam Aplikasi (In-App Messaging)
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.teal.shade700,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        elevation: 1,
-                      ),
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => HalamanChatTraveler(barang: widget.barang),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.forum_outlined, size: 20),
-                      label: const Text(
-                        'Chat Langsung di Aplikasi (Live Chat)',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    // Live Chat di Dalam Aplikasi (In-App Messaging)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 1,
+                        ),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => HalamanChatTraveler(barang: widget.barang),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.forum_outlined, size: 20),
+                        label: const Text(
+                          'Chat Langsung di Aplikasi (Live Chat)',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // 2. Chat Eksternal WhatsApp
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.green.shade800,
-                        side: BorderSide(color: Colors.green.shade400),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: _hubungiTravelerViaWhatsApp,
-                      icon: const Icon(Icons.chat_bubble_outline, color: Colors.green, size: 20),
-                      label: const Text(
-                        'Hubungi via WhatsApp Eksternal',
-                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 28),
+                    const SizedBox(height: 28),
+                  ],
 
                   // ==========================================
-                  // REKOMENDASI CERDAS UNTUK ANDA (FITUR AI)
+                  // REKOMENDASI CERDAS UNTUK ANDA (FITUR AI - HANYA UNTUK PEMESAN - POIN 3)
                   // ==========================================
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  if (_peranAktif != 'TRAVELER') ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Row(
                         children: [
@@ -642,6 +551,7 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
                                 },
                               ),
                             ),
+                  ],
                   const SizedBox(height: 100), // Spasi agar tidak tertutup bottom bar
                 ],
               ),
@@ -722,8 +632,15 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      onPressed: () {
+                      onPressed: () async {
+                        final destinasi = await LayananOtentikasi.ambilDestinasiAktifTraveler();
+                        if (!LayananOtentikasi.apakahNegaraSesuai(widget.barang.negara, destinasi)) {
+                          if (!context.mounted) return;
+                          _tampilkanDialogRuteBeda(destinasi);
+                          return;
+                        }
                         // Langsung ke checkout untuk item ini
+                        if (!context.mounted) return;
                         Navigator.push(
                           context,
                           MaterialPageRoute(

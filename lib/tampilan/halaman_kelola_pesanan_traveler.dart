@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_otentikasi.dart';
+import '../layanan/layanan_rekber.dart';
 import '../model/model_pesanan_jastip.dart';
 import 'halaman_chat_traveler.dart';
+import 'halaman_dompet_rekber.dart';
 import 'halaman_peta_lokasi.dart';
-import 'halaman_sertifikat_blockchain.dart';
 
 // Halaman Khusus Pengelolaan Pesanan Titipan oleh Pembeli / Traveler di Luar Negeri (Dimas Pratama)
 // Fitur Khusus Sisi Traveler:
@@ -31,6 +32,7 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
   ModelPesananJastip? _pesananAktif;
   bool _sedangMemuat = true;
   String _peranAktif = 'TRAVELER';
+  String _kategoriTab = 'BELUM_DITERIMA'; // 'BELUM_DITERIMA' atau 'SUDAH_DITERIMA'
 
   @override
   void initState() {
@@ -47,15 +49,27 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
       _daftarPesanan = list;
       _sedangMemuat = false;
 
-      if (list.isNotEmpty) {
-        if (widget.idPesananTerpilih != null) {
-          _pesananAktif = list.firstWhere(
-            (p) => p.idPesanan == widget.idPesananTerpilih,
-            orElse: () => list.first,
-          );
-        } else {
-          _pesananAktif = list.first;
+      final pesananBelumDiterima = list.where((p) => p.apakahBelumDiterima).toList();
+      final pesananSudahDiterima = list.where((p) => p.apakahSudahDiterima).toList();
+
+      if (widget.idPesananTerpilih != null) {
+        final dicari = list.where((p) => p.idPesanan == widget.idPesananTerpilih).firstOrNull;
+        if (dicari != null) {
+          _kategoriTab = dicari.apakahSudahDiterima ? 'SUDAH_DITERIMA' : 'BELUM_DITERIMA';
+          _pesananAktif = dicari;
+          return;
         }
+      }
+
+      final listTampil = _kategoriTab == 'BELUM_DITERIMA' ? pesananBelumDiterima : pesananSudahDiterima;
+      if (listTampil.isNotEmpty) {
+        _pesananAktif = listTampil.first;
+      } else if (pesananBelumDiterima.isNotEmpty) {
+        _kategoriTab = 'BELUM_DITERIMA';
+        _pesananAktif = pesananBelumDiterima.first;
+      } else if (pesananSudahDiterima.isNotEmpty) {
+        _kategoriTab = 'SUDAH_DITERIMA';
+        _pesananAktif = pesananSudahDiterima.first;
       } else {
         _pesananAktif = null;
       }
@@ -97,7 +111,7 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
     final pesanan = _pesananAktif!;
 
     const statusBaru = 3;
-    final lokasiBaru = 'Kantong Belanja Traveler di ${pesanan.negaraAsal} (Struk Masuk Blockchain)';
+    final lokasiBaru = 'Kantong Belanja Traveler di ${pesanan.negaraAsal} (Struk Resmi Diverifikasi)';
 
     await LayananBasisDataLokal.perbaruiStatusPesanan(
       pesanan.idPesanan,
@@ -114,7 +128,7 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
     LayananNotifikasi.kirimNotifikasi(
       context,
       judul: 'Barang Berhasil Dibeli di Toko! 🛍️',
-      pesan: 'Semua ${pesanan.daftarBarang.length} item telah dibeli. Struk pembelian tercatat ke Blockchain.',
+      pesan: 'Semua ${pesanan.daftarBarang.length} item telah dibeli. Struk pembelian resmi diverifikasi aman.',
       ikon: Icons.shopping_bag_rounded,
       warna: Colors.teal.shade800,
     );
@@ -185,6 +199,218 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
         );
   }
 
+  void _dialogTarikDanaTraveler() {
+    final saldoTertahan = LayananRekber.hitungSaldoTertahanRekber(namaTraveler: 'Dimas Pratama');
+    final saldoAktif = LayananRekber.hitungSaldoAktifTraveler(namaTraveler: 'Dimas Pratama');
+    final controllerRek = TextEditingController();
+    final controllerNominal = TextEditingController(text: saldoAktif > 0 ? saldoAktif.toString() : '');
+    String bankPilihan = 'BCA';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Pencairan Saldo Traveler',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                // Banner Penjelasan Rekber
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.amber.shade300),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.shield_rounded, color: Colors.amber.shade800, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Sistem Rekber (Escrow): Uang pemesan berstatus "Dana Tertahan" (Rp ${_formatRupiah(saldoTertahan)}) dan DILARANG dicairkan sebelum pemesan mengonfirmasi "Sudah Diterima". Hanya Saldo Aktif (Rp ${_formatRupiah(saldoAktif)}) yang dapat dicairkan.',
+                          style: TextStyle(fontSize: 11, color: Colors.amber.shade900, height: 1.3),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                // Input Bank & Rekening
+                DropdownButtonFormField<String>(
+                  initialValue: bankPilihan,
+                  decoration: InputDecoration(
+                    labelText: 'Bank Tujuan',
+                    prefixIcon: const Icon(Icons.account_balance_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'BCA', child: Text('Bank Central Asia (BCA)')),
+                    DropdownMenuItem(value: 'Mandiri', child: Text('Bank Mandiri')),
+                    DropdownMenuItem(value: 'BNI', child: Text('Bank Negara Indonesia (BNI)')),
+                    DropdownMenuItem(value: 'BRI', child: Text('Bank Rakyat Indonesia (BRI)')),
+                    DropdownMenuItem(value: 'BSI', child: Text('Bank Syariah Indonesia (BSI)')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setModalState(() => bankPilihan = val);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controllerRek,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Nomor Rekening',
+                    hintText: 'Contoh: 8820391823',
+                    prefixIcon: const Icon(Icons.credit_card_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controllerNominal,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Nominal Penarikan (Rp)',
+                    hintText: 'Minimal Rp 10.000',
+                    prefixIcon: const Icon(Icons.money_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo.shade800,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () async {
+                    final nominal = int.tryParse(controllerNominal.text.trim()) ?? 0;
+                    final noRek = controllerRek.text.trim();
+
+                    if (noRek.isEmpty) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(content: Text('Nomor rekening tujuan wajib diisi.')),
+                      );
+                      return;
+                    }
+
+                    if (nominal <= 0) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(content: Text('Nominal penarikan harus lebih dari Rp 0.')),
+                      );
+                      return;
+                    }
+
+                    final hasil = await LayananRekber.tarikDanaKeRekening(
+                      namaTraveler: 'Dimas Pratama',
+                      jumlahTarik: nominal,
+                      namaBank: bankPilihan,
+                      nomorRekening: noRek,
+                      namaPemilikRekening: 'Dimas Pratama',
+                    );
+
+                    if (!ctx.mounted) return;
+                    Navigator.pop(ctx);
+                    if (!mounted) return;
+
+                    if (!hasil.berhasil) {
+                      showDialog(
+                        context: context,
+                        builder: (dCtx) => AlertDialog(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          title: Row(
+                            children: [
+                              Icon(Icons.gpp_bad_rounded, color: Colors.red.shade700, size: 28),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text('Penarikan Ditolak!', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              ),
+                            ],
+                          ),
+                          content: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(hasil.pesan, style: const TextStyle(fontSize: 13, height: 1.4)),
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.red.shade200),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Saldo Aktif Siap Cair: Rp ${_formatRupiah(hasil.saldoAktif)}',
+                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.green.shade900)),
+                                    const SizedBox(height: 2),
+                                    Text('Dana Tertahan di Rekber: Rp ${_formatRupiah(hasil.saldoTertahan)}',
+                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.red.shade900)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dCtx),
+                              child: const Text('MENGERTI'),
+                            ),
+                          ],
+                        ),
+                      );
+                    } else {
+                      setState(() {});
+                      LayananNotifikasi.kirimNotifikasi(
+                        context,
+                        judul: 'Pencairan Dana Berhasil! 💸',
+                        pesan: hasil.pesan,
+                        ikon: Icons.verified_rounded,
+                        warna: Colors.green.shade800,
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.arrow_upward_rounded),
+                  label: const Text('PROSES PENARIKAN DANA', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_sedangMemuat) {
@@ -204,7 +430,8 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
           foregroundColor: Colors.white,
         ),
         body: Center(
-          child: Padding(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.all(28.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -248,7 +475,7 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
       );
     }
 
-    if (_daftarPesanan.isEmpty || _pesananAktif == null) {
+    if (_daftarPesanan.isEmpty) {
       return Scaffold(
         backgroundColor: const Color(0xFFF7F9FC),
         appBar: AppBar(
@@ -258,7 +485,8 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
           elevation: 0,
         ),
         body: Center(
-          child: Padding(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.all(28.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -306,8 +534,18 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
       );
     }
 
-    final pesanan = _pesananAktif!;
-    final int tahap = pesanan.tahapStatus;
+    final pesananBelumDiterima = _daftarPesanan.where((p) => p.apakahBelumDiterima).toList();
+    final pesananSudahDiterima = _daftarPesanan.where((p) => p.apakahSudahDiterima).toList();
+    final listTampil = _kategoriTab == 'BELUM_DITERIMA' ? pesananBelumDiterima : pesananSudahDiterima;
+
+    ModelPesananJastip? pesanan = _pesananAktif;
+    if (pesanan != null && !listTampil.any((p) => p.idPesanan == pesanan!.idPesanan)) {
+      pesanan = listTampil.isNotEmpty ? listTampil.first : null;
+    } else if (pesanan == null && listTampil.isNotEmpty) {
+      pesanan = listTampil.first;
+    }
+
+    final int tahap = pesanan?.tahapStatus ?? 1;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
@@ -318,13 +556,13 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: 'Sertifikat Struk Blockchain',
-            icon: const Icon(Icons.link_rounded),
+            tooltip: 'Dompet & Saldo Rekber Escrow',
+            icon: const Icon(Icons.account_balance_wallet_rounded),
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const HalamanSertifikatBlockchain()),
-              );
+                MaterialPageRoute(builder: (context) => const HalamanDompetRekber()),
+              ).then((_) => setState(() {}));
             },
           ),
         ],
@@ -381,115 +619,505 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
             ),
             const SizedBox(height: 14),
 
-            // Pilihan Pesanan Masuk (Jika lebih dari 1)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Pesanan Titipan Masuk:',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
-                ),
-                Text(
-                  '${_daftarPesanan.length} Pesanan Masuk',
-                  style: TextStyle(fontSize: 11, color: Colors.indigo.shade800, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
+            // ========================================================
+            // KARTU DOMPET REKBER TRAVELER (ESCROW PROTECTION)
+            // ========================================================
+            Builder(
+              builder: (context) {
+                final saldoTertahan = LayananRekber.hitungSaldoTertahanRekber(namaTraveler: 'Dimas Pratama');
+                final saldoAktif = LayananRekber.hitungSaldoAktifTraveler(namaTraveler: 'Dimas Pratama');
 
-            SizedBox(
-              height: 74,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                itemCount: _daftarPesanan.length,
-                itemBuilder: (context, index) {
-                  final p = _daftarPesanan[index];
-                  final bool terpilih = p.idPesanan == pesanan.idPesanan;
-
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _pesananAktif = p;
-                      });
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: 190,
-                      margin: const EdgeInsets.only(right: 10, bottom: 4),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: terpilih ? Colors.indigo.shade800 : Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: terpilih ? Colors.indigo.shade800 : Colors.grey.shade300,
-                          width: terpilih ? 2 : 1,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: terpilih ? 0.08 : 0.03),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.indigo.shade100),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.indigo.withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                p.negaraAsal,
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: terpilih ? Colors.white : Colors.black87,
-                                ),
-                              ),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.all(6),
                                 decoration: BoxDecoration(
-                                  color: terpilih ? Colors.indigo.shade700 : Colors.indigo.shade50,
-                                  borderRadius: BorderRadius.circular(6),
+                                  color: Colors.indigo.shade50,
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: Text(
-                                  '${p.daftarBarang.length} Item',
-                                  style: TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.bold,
-                                    color: terpilih ? Colors.white : Colors.indigo.shade900,
-                                  ),
-                                ),
+                                child: Icon(Icons.account_balance_wallet_rounded, color: Colors.indigo.shade800, size: 18),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Dompet Rekber Traveler',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            p.idPesanan,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: terpilih ? Colors.white70 : Colors.black54,
-                            ),
-                          ),
-                          Text(
-                            'Rp ${_formatRupiah(p.totalHargaIdr)}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w900,
-                              color: terpilih ? Colors.amber.shade300 : Colors.indigo.shade900,
+                          InkWell(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (context) => const HalamanDompetRekber()),
+                              ).then((_) => setState(() {}));
+                            },
+                            child: Row(
+                              children: [
+                                Text(
+                                  'Detail Rekber',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo.shade800),
+                                ),
+                                Icon(Icons.chevron_right, size: 16, color: Colors.indigo.shade800),
+                              ],
                             ),
                           ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          // Kolom Saldo Tertahan (Rekber)
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.amber.shade300),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.lock_rounded, size: 14, color: Colors.amber.shade900),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          'Saldo Rekber (Tertahan)',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.amber.shade900,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Rp ${_formatRupiah(saldoTertahan)}',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.amber.shade900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    '🔒 Belum bisa dicairkan',
+                                    style: TextStyle(fontSize: 9.5, color: Colors.black54),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          // Kolom Saldo Aktif (Siap Cair)
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.green.shade300),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.check_circle_rounded, size: 14, color: Colors.green.shade900),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          'Saldo Aktif (Siap Cair)',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.green.shade900,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Rp ${_formatRupiah(saldoAktif)}',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.green.shade900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    '✅ Pesanan sudah selesai',
+                                    style: TextStyle(fontSize: 9.5, color: Colors.black54),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      // Tombol Tarik Saldo
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: Colors.indigo.shade700),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                          ),
+                          onPressed: _dialogTarikDanaTraveler,
+                          icon: Icon(Icons.account_balance_rounded, size: 16, color: Colors.indigo.shade800),
+                          label: Text(
+                            'Tarik Saldo ke Rekening Bank',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Colors.indigo.shade900),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+
+            // ========================================================
+            // FILTER KATEGORI PESANAN (POIN 5: BELUM / SUDAH DITERIMA)
+            // ========================================================
+            Container(
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () {
+                        setState(() {
+                          _kategoriTab = 'BELUM_DITERIMA';
+                          final listFilter = _daftarPesanan.where((p) => p.apakahBelumDiterima).toList();
+                          _pesananAktif = listFilter.isNotEmpty ? listFilter.first : null;
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _kategoriTab == 'BELUM_DITERIMA' ? Colors.white : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: _kategoriTab == 'BELUM_DITERIMA'
+                              ? [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.08),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.pending_actions_rounded,
+                              size: 16,
+                              color: _kategoriTab == 'BELUM_DITERIMA' ? Colors.indigo.shade800 : Colors.black54,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Belum Diterima',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: _kategoriTab == 'BELUM_DITERIMA' ? FontWeight.bold : FontWeight.w500,
+                                color: _kategoriTab == 'BELUM_DITERIMA' ? Colors.indigo.shade900 : Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: _kategoriTab == 'BELUM_DITERIMA' ? Colors.indigo.shade800 : Colors.grey.shade400,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${pesananBelumDiterima.length}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  );
-                },
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () {
+                        setState(() {
+                          _kategoriTab = 'SUDAH_DITERIMA';
+                          final listFilter = _daftarPesanan.where((p) => p.apakahSudahDiterima).toList();
+                          _pesananAktif = listFilter.isNotEmpty ? listFilter.first : null;
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _kategoriTab == 'SUDAH_DITERIMA' ? Colors.white : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: _kategoriTab == 'SUDAH_DITERIMA'
+                              ? [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.08),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.task_alt_rounded,
+                              size: 16,
+                              color: _kategoriTab == 'SUDAH_DITERIMA' ? Colors.green.shade700 : Colors.black54,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Sudah Diterima',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: _kategoriTab == 'SUDAH_DITERIMA' ? FontWeight.bold : FontWeight.w500,
+                                color: _kategoriTab == 'SUDAH_DITERIMA' ? Colors.green.shade800 : Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: _kategoriTab == 'SUDAH_DITERIMA' ? Colors.green.shade700 : Colors.grey.shade400,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${pesananSudahDiterima.length}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 14),
 
+            if (listTampil.isEmpty) ...[
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 20),
+                padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade200),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 6, offset: const Offset(0, 2)),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _kategoriTab == 'BELUM_DITERIMA'
+                          ? Icons.check_circle_outline_rounded
+                          : Icons.inventory_2_outlined,
+                      size: 48,
+                      color: _kategoriTab == 'BELUM_DITERIMA' ? Colors.green.shade600 : Colors.grey.shade400,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _kategoriTab == 'BELUM_DITERIMA'
+                          ? 'Tidak Ada Pesanan Belum Selesai'
+                          : 'Belum Ada Pesanan yang Selesai / Diterima',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _kategoriTab == 'BELUM_DITERIMA'
+                          ? 'Seluruh pesanan masuk telah berhasil diantar dan diterima oleh pemesan.'
+                          : 'Setelah pemesan mengonfirmasi penerimaan barang, riwayat pesanan selesai akan tersimpan di sini.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 11.5, color: Colors.black54, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              // Pilihan Pesanan Masuk
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _kategoriTab == 'BELUM_DITERIMA' ? 'Pesanan Masuk (Aktif):' : 'Pesanan Masuk (Selesai):',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
+                  ),
+                  Text(
+                    '${listTampil.length} Pesanan',
+                    style: TextStyle(fontSize: 11, color: Colors.indigo.shade800, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              SizedBox(
+                height: 94,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: listTampil.length,
+                  itemBuilder: (context, index) {
+                    final p = listTampil[index];
+                    final bool terpilih = pesanan != null && p.idPesanan == pesanan.idPesanan;
+
+                    return GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _pesananAktif = p;
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 190,
+                        margin: const EdgeInsets.only(right: 10, bottom: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: terpilih ? Colors.indigo.shade800 : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: terpilih ? Colors.indigo.shade800 : Colors.grey.shade300,
+                            width: terpilih ? 2 : 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: terpilih ? 0.08 : 0.03),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    p.negaraAsal,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: terpilih ? Colors.white : Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: terpilih ? Colors.indigo.shade700 : Colors.indigo.shade50,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '${p.daftarBarang.length} Item',
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: terpilih ? Colors.white : Colors.indigo.shade900,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              p.idPesanan,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: terpilih ? Colors.white70 : Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Rp ${_formatRupiah(p.totalHargaIdr)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                                color: terpilih ? Colors.amber.shade300 : Colors.indigo.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+
+            if (pesanan != null) ...[
             // Status Lokasi & Alur Titipan
             Container(
               padding: const EdgeInsets.all(14),
@@ -734,12 +1362,12 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                   : null,
             ),
 
-            // STEP 3: Catat Struk ke Blockchain & Masuk Koper
+            // STEP 3: Konfirmasi Belanja & Masuk Bagasi
             _bangunItemTimeline(
               nomor: 3,
               judul: '3. Barang Sudah Dibeli di Toko Resmi',
               deskripsi: tahap >= 4
-                  ? 'Struk belanja resmi telah tercatat di Blockchain dan barang siap dibawa pulang ke RI.'
+                  ? 'Struk belanja resmi telah diverifikasi aman dan barang siap dibawa pulang ke RI.'
                   : 'Barang sudah dibeli. Silakan konfirmasi untuk memasukkan barang ke bagasi penerbangan menuju Indonesia.',
               ikon: Icons.storefront_rounded,
               sudahLewat: tahap >= 4,
@@ -866,18 +1494,19 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                   : null,
             ),
 
-            // STEP 6: Selesai & Pencairan Dana Rekber
+            // STEP 6: Selesai & Pelepasan Dana Rekber
             _bangunItemTimeline(
               nomor: 6,
-              judul: '6. Konfirmasi Terima & Pencairan Dana ke Dompet',
+              judul: '6. Konfirmasi Terima & Pelepasan Dana Rekber',
               deskripsi: tahap == 6
-                  ? 'Transaksi Selesai 100%! Dana Rp ${_formatRupiah(pesanan.totalHargaIdr)} telah resmi dicairkan ke saldo dompet Anda.'
-                  : 'Menunggu Pemesan memeriksa fisik barang dan mengonfirmasi terima (atau auto-cair setelah 5 hari).',
+                  ? 'Transaksi Selesai 100%! Dana Rp ${_formatRupiah(pesanan.totalHargaIdr)} telah resmi dilepaskan dari Rekber ke Saldo Aktif Anda.'
+                  : 'Dana Rp ${_formatRupiah(pesanan.totalHargaIdr)} tersimpan aman di Rekber. Menunggu Pemesan mengonfirmasi "Sudah Diterima" agar dana cair ke Saldo Aktif Anda.',
               ikon: Icons.monetization_on_rounded,
               sudahLewat: tahap == 6,
               sedangAktif: tahap == 6,
               garisTerakhir: true,
             ),
+            ], // Penutup if (pesanan != null)
             const SizedBox(height: 80),
           ],
         ),

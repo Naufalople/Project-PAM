@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../model/model_pengguna.dart';
 import '../layanan/layanan_otentikasi.dart';
+import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_biometrik.dart';
 import 'halaman_masuk.dart';
 import 'halaman_saran_kesan.dart';
-import 'halaman_sertifikat_blockchain.dart';
+import 'halaman_dompet_rekber.dart';
 import 'halaman_peta_lokasi.dart';
 import 'halaman_status_pesanan.dart';
 import 'halaman_kelola_pesanan_traveler.dart';
@@ -23,6 +24,7 @@ class HalamanProfil extends StatefulWidget {
 class _HalamanProfilState extends State<HalamanProfil> {
   ModelPengguna? _profilPengguna;
   bool _biometrikAktif = false;
+  String _destinasiTraveler = 'Jepang';
 
   @override
   void initState() {
@@ -32,6 +34,7 @@ class _HalamanProfilState extends State<HalamanProfil> {
 
   Future<void> _muatProfil() async {
     final profil = await LayananOtentikasi.ambilProfilAktif();
+    final destinasi = await LayananOtentikasi.ambilDestinasiAktifTraveler();
     bool biometrikAktif = false;
     if (profil != null) {
       biometrikAktif = await LayananBiometrik.apakahBiometrikAktifUntukAkun(profil.email);
@@ -40,7 +43,199 @@ class _HalamanProfilState extends State<HalamanProfil> {
     setState(() {
       _profilPengguna = profil;
       _biometrikAktif = biometrikAktif;
+      _destinasiTraveler = destinasi;
     });
+  }
+
+  // Pengaturan Destinasi Penerbangan Aktif Traveler (Poin 4)
+  // Pengaturan Destinasi Penerbangan Aktif Traveler dengan Validasi Status Pesanan (TODO_VALIDASI_DESTINASI)
+  Future<void> _ubahDestinasiTraveler() async {
+    // 1. Jalankan fungsi pengecekan ke database pesanan
+    final String namaTraveler = _profilPengguna?.nama ?? 'Dimas Pratama';
+    final pesananBelumDikirim = LayananBasisDataLokal.ambilPesananBelumDikirimTraveler(
+      namaTraveler: namaTraveler,
+    );
+
+    // 2. Jika masih ada pesanan yang statusnya belum mencapai "Dikirim ke Indonesia" (tahapStatus < 4), gagalkan proses
+    if (pesananBelumDikirim.isNotEmpty) {
+      if (!mounted) return;
+
+      // Tampilkan pesan peringatan/Snackbar yang jelas di layar sesuai instruksi
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Anda tidak dapat mengubah negara destinasi. Pastikan semua produk pesanan saat ini sudah dikirim ke Indonesia.',
+          ),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 4),
+        ),
+      );
+
+      // Tampilkan juga dialog penjelasan detail transaksi aktif yang belum dikirim
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(Icons.block_rounded, color: Colors.red.shade700, size: 24),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text('Ubah Destinasi Ditolak', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Anda tidak dapat mengubah negara destinasi. Pastikan semua produk pesanan saat ini sudah dikirim ke Indonesia.',
+                  style: TextStyle(fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Terdapat ${pesananBelumDikirim.length} pesanan aktif yang belum dikirim:',
+                        style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.bold, fontSize: 11.5),
+                      ),
+                      const SizedBox(height: 6),
+                      ...pesananBelumDikirim.take(3).map((p) => Text(
+                            '• ${p.idPesanan} (${p.negaraAsal}) - ${p.lokasiTerkini}',
+                            style: TextStyle(color: Colors.red.shade800, fontSize: 11),
+                          )),
+                      if (pesananBelumDikirim.length > 3)
+                        Text(
+                          '• Dan ${pesananBelumDikirim.length - 3} pesanan lainnya...',
+                          style: TextStyle(color: Colors.red.shade800, fontSize: 11, fontStyle: FontStyle.italic),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('MENGERTI'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // 3. Traveler diizinkan jika tidak ada pesanan aktif sama sekali (0 pesanan) ATAU semua sudah "Dikirim ke Indonesia" (tahapStatus >= 4)
+    final pilihan = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.75,
+          ),
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Pilih Destinasi Penerbangan Aktif ✈️',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Pemesan hanya dapat memesan produk dari negara tujuan ini.',
+                        style: TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(),
+                ...LayananOtentikasi.daftarDestinasiTersedia.map((d) {
+                  final bool terpilih = d['nama'] == _destinasiTraveler;
+                  return ListTile(
+                    leading: Text(d['bendera']!, style: const TextStyle(fontSize: 24)),
+                    title: Text(d['nama']!, style: TextStyle(fontWeight: terpilih ? FontWeight.bold : FontWeight.normal)),
+                    subtitle: Text('Rute Hub: ${d['kota']}'),
+                    trailing: terpilih ? const Icon(Icons.check_circle, color: Colors.indigo) : null,
+                    onTap: () => Navigator.pop(ctx, d['nama']),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (pilihan != null && pilihan != _destinasiTraveler) {
+      final bool sukses = await LayananOtentikasi.simpanDestinasiAktifTraveler(
+        pilihan,
+        namaTraveler: namaTraveler,
+      );
+
+      if (!sukses) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Anda tidak dapat mengubah negara destinasi. Pastikan semua produk pesanan saat ini sudah dikirim ke Indonesia.',
+            ),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      final destinasiInfo = LayananOtentikasi.daftarDestinasiTersedia.firstWhere(
+        (d) => d['nama'] == pilihan,
+        orElse: () => {'nama': pilihan, 'bendera': '✈️', 'kota': pilihan},
+      );
+      final lokasiBaru = '${destinasiInfo['kota']} ${destinasiInfo['bendera']}';
+      if (_profilPengguna != null) {
+        await LayananOtentikasi.perbaruiProfilAktif(
+          nama: _profilPengguna!.nama,
+          nomorTelepon: _profilPengguna!.nomorTelepon,
+          lokasi: lokasiBaru,
+        );
+      }
+      await _muatProfil();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '✈️ Destinasi penerbangan diubah ke $pilihan! Pemesan kini dibatasi hanya memesan produk dari $pilihan.',
+          ),
+          backgroundColor: Colors.indigo.shade800,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   // Fungsi Mengubah Status Pendaftaran Sidik Jari untuk Akun Ini
@@ -125,7 +320,8 @@ class _HalamanProfilState extends State<HalamanProfil> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (bSheetCtx) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
           padding: const EdgeInsets.symmetric(vertical: 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -387,6 +583,138 @@ class _HalamanProfilState extends State<HalamanProfil> {
             ),
             const SizedBox(height: 24),
 
+            // Card Pengaturan Destinasi Penerbangan Aktif Traveler (Poin 4 & TODO_VALIDASI_DESTINASI)
+            if (_profilPengguna?.peran == 'TRAVELER') ...[
+              Builder(
+                builder: (context) {
+                  final bool adaPesananBelumDikirim = LayananBasisDataLokal.apakahAdaPesananBelumDikirim(
+                    namaTraveler: _profilPengguna?.nama,
+                  );
+
+                  return Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: adaPesananBelumDikirim
+                            ? [Colors.blueGrey.shade900, Colors.indigo.shade900]
+                            : [Colors.indigo.shade800, Colors.indigo.shade600],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.indigo.withValues(alpha: 0.25),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Expanded(
+                              child: Row(
+                                children: [
+                                  Icon(Icons.flight_takeoff_rounded, color: Colors.white, size: 20),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Destinasi Penerbangan Aktif',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: adaPesananBelumDikirim ? Colors.amber.shade400 : Colors.teal.shade300,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    adaPesananBelumDikirim ? Icons.lock_rounded : Icons.check_circle_rounded,
+                                    size: 11,
+                                    color: Colors.black87,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    adaPesananBelumDikirim ? 'Rute Terkunci' : 'Open PO',
+                                    style: const TextStyle(
+                                      color: Colors.black87,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Rute Saat Ini: $_destinasiTraveler',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          adaPesananBelumDikirim
+                              ? '🔒 Tombol terkunci karena masih ada pesanan aktif yang belum dikirim ke Indonesia. Pastikan semua produk pesanan saat ini sudah dikirim ke Indonesia sebelum mengubah rute.'
+                              : 'Pemesan hanya dapat menitip barang dari negara tujuan ini. Klik tombol di bawah untuk mengganti rute penerbangan aktif.',
+                          style: TextStyle(
+                            color: adaPesananBelumDikirim ? Colors.amber.shade200 : Colors.white70,
+                            fontSize: 11,
+                            height: 1.3,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: adaPesananBelumDikirim ? Colors.white.withValues(alpha: 0.95) : Colors.white,
+                              foregroundColor: adaPesananBelumDikirim ? Colors.red.shade900 : Colors.indigo.shade900,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: _ubahDestinasiTraveler,
+                            icon: Icon(
+                              adaPesananBelumDikirim ? Icons.lock_outline_rounded : Icons.edit_location_alt_rounded,
+                              size: 18,
+                            ),
+                            label: Text(
+                              adaPesananBelumDikirim
+                                  ? 'Ubah Negara Destinasi (Terkunci)'
+                                  : 'Ubah Rute Destinasi Penerbangan',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+            ],
+
             // Menu Pengaturan & Navigasi
             Container(
               decoration: BoxDecoration(
@@ -413,13 +741,13 @@ class _HalamanProfilState extends State<HalamanProfil> {
                     title: Text(
                       (_profilPengguna?.peran == 'TRAVELER')
                           ? 'Kelola Pesanan Masuk (Traveler)'
-                          : 'Pesanan Saya & Rekber Escrow',
+                          : 'Pesanan Saya',
                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                     ),
                     subtitle: Text(
                       (_profilPengguna?.peran == 'TRAVELER')
                           ? 'ACC pesanan titipan & konfirmasi belanja LN'
-                          : 'Lacak status barang & perlindungan dana',
+                          : 'Lacak status perjalanan barang titipan Anda',
                       style: const TextStyle(fontSize: 11),
                     ),
                     trailing: const Icon(Icons.chevron_right),
@@ -447,7 +775,7 @@ class _HalamanProfilState extends State<HalamanProfil> {
                     title: Text(
                       (_profilPengguna?.peran == 'TRAVELER')
                           ? 'Chat Langsung dengan Pemesan'
-                          : 'Chat dengan Traveler (Dimas)',
+                          : 'Chat Langsung dengan Traveler',
                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                     ),
                     subtitle: const Text(
@@ -462,26 +790,29 @@ class _HalamanProfilState extends State<HalamanProfil> {
                       );
                     },
                   ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.blueGrey.shade50,
-                        shape: BoxShape.circle,
+                  // Fitur Saldo & Dompet Rekber HANYA Muncul Khusus untuk Akun Traveler
+                  if (_profilPengguna?.peran == 'TRAVELER') ...[
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.account_balance_wallet_rounded, color: Colors.indigo.shade800),
                       ),
-                      child: const Icon(Icons.link_rounded, color: Colors.blueGrey),
+                      title: const Text('Dompet & Saldo Rekber Escrow', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                      subtitle: const Text('Status dana tertahan & pencairan saldo aktif traveler', style: TextStyle(fontSize: 11)),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const HalamanDompetRekber()),
+                        );
+                      },
                     ),
-                    title: const Text('Buku Besar Blockchain', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                    subtitle: const Text('Bukti transaksi & keaslian struk belanja', style: TextStyle(fontSize: 11)),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => const HalamanSertifikatBlockchain()),
-                      );
-                    },
-                  ),
+                  ],
                   const Divider(height: 1),
                   ListTile(
                     leading: Container(

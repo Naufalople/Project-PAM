@@ -141,6 +141,7 @@ class _HalamanKalkulatorKursState extends State<HalamanKalkulatorKurs> {
                   const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     initialValue: _mataUangPilihan,
+                    isExpanded: true,
                     decoration: InputDecoration(
                       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -150,7 +151,10 @@ class _HalamanKalkulatorKursState extends State<HalamanKalkulatorKurs> {
                     items: _daftarMataUang.map((m) {
                       return DropdownMenuItem(
                         value: m['kode'],
-                        child: Text('${m['bendera']} ${m['kode']} - ${m['nama']}'),
+                        child: Text(
+                          '${m['bendera']} ${m['kode']} - ${m['nama']}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       );
                     }).toList(),
                     onChanged: (val) {
@@ -263,17 +267,25 @@ class _HalamanKalkulatorKursState extends State<HalamanKalkulatorKurs> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(item['nama']!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text(
+                              item['nama']!,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             Text(item['kode']!, style: const TextStyle(fontSize: 11, color: Colors.black45)),
                           ],
                         ),
                       ),
-                      Text(
-                        '1 ${item['kode']} = ${LayananKonversi.formatRupiah(kurs.toInt())}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.teal.shade900,
-                          fontSize: 13,
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          '1 ${item['kode']} = ${LayananKonversi.formatRupiah(kurs.toInt())}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.teal.shade900,
+                            fontSize: 13,
+                          ),
+                          textAlign: TextAlign.right,
                         ),
                       ),
                     ],

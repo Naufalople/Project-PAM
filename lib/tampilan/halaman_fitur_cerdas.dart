@@ -7,10 +7,11 @@ import 'halaman_jam_dunia.dart';
 import 'halaman_kalkulator_kurs.dart';
 import 'halaman_mini_game.dart';
 import 'halaman_peta_lokasi.dart';
-import 'halaman_sertifikat_blockchain.dart';
+import 'halaman_dompet_rekber.dart';
 import 'halaman_chat_traveler.dart';
 import 'halaman_status_pesanan.dart';
 import 'halaman_kelola_pesanan_traveler.dart';
+import 'halaman_pencarian_suara.dart';
 
 // Halaman Hub Fitur Cerdas: Pusat Navigasi Berbasis Peran (RBAC Pemesan vs Traveler)
 class HalamanFiturCerdas extends StatefulWidget {
@@ -78,14 +79,7 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
           'halaman': const HalamanChatTraveler(),
           'tag': 'Multi-Chat',
         },
-        {
-          'judul': 'Rekomendasi Cerdas AI (Riset Pasar)',
-          'subjudul': 'Pantau barang terlaris dan analisis tren pembelian untuk jastip',
-          'ikon': Icons.auto_awesome_rounded,
-          'warna': Colors.purple,
-          'halaman': const HalamanRekomendasiAi(),
-          'tag': 'AI Engine',
-        },
+
         {
           'judul': 'Chatbot Regulasi Bea Cukai',
           'subjudul': 'Konsultasi batasan koper USD 500 & aturan IMEI bandara',
@@ -119,12 +113,12 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
           'tag': 'LBS / GPS',
         },
         {
-          'judul': 'Sertifikat Blockchain',
-          'subjudul': 'Enkripsi struk belanja resmi ke ledger SHA-256 anti-palsu',
-          'ikon': Icons.link_rounded,
-          'warna': Colors.blueGrey.shade800,
-          'halaman': const HalamanSertifikatBlockchain(),
-          'tag': 'Web3 Ledger',
+          'judul': 'Dompet & Saldo Rekber Escrow',
+          'subjudul': 'Pantau dana tertahan dan pencairan saldo aktif hasil titipan',
+          'ikon': Icons.account_balance_wallet_rounded,
+          'warna': Colors.teal.shade800,
+          'halaman': const HalamanDompetRekber(),
+          'tag': 'Rekber Escrow',
         },
       ]);
     } else {
@@ -133,8 +127,8 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
       // ==========================================
       menuFitur.addAll([
         {
-          'judul': 'Pelacakan Pesanan & Rekber (Pemesan)',
-          'subjudul': 'Pantau siklus barang, proteksi rekber, & konfirmasi terima',
+          'judul': 'Pelacakan Status Pesanan (Pemesan)',
+          'subjudul': 'Pantau siklus barang titipan & konfirmasi terima barang',
           'ikon': Icons.local_shipping_rounded,
           'warna': Colors.deepOrange.shade700,
           'halaman': const HalamanStatusPesanan(),
@@ -142,7 +136,7 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
         },
         {
           'judul': 'Chat Langsung dengan Traveler',
-          'subjudul': 'Hubungi Traveler Dimas untuk konsultasi titipan aktif Anda',
+          'subjudul': 'Hubungi Traveler untuk konsultasi & negosiasi titipan aktif Anda',
           'ikon': Icons.forum_rounded,
           'warna': Colors.teal.shade600,
           'halaman': const HalamanChatTraveler(),
@@ -171,6 +165,14 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
           'warna': Colors.amber.shade800,
           'halaman': const HalamanShakePromo(),
           'tag': 'Sensor Gerak',
+        },
+        {
+          'judul': 'Pencarian Suara (Voice Search)',
+          'subjudul': 'Cari produk katalog jastip menggunakan sensor suara mikrofon',
+          'ikon': Icons.mic_rounded,
+          'warna': Colors.teal.shade700,
+          'halaman': const HalamanPencarianSuara(),
+          'tag': 'Sensor Suara',
         },
         {
           'judul': 'Mini Game Koper Jastip',
@@ -204,14 +206,6 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
           'halaman': const HalamanPetaLokasi(),
           'tag': 'LBS / GPS',
         },
-        {
-          'judul': 'Sertifikat Blockchain',
-          'subjudul': 'Verifikasi keaslian struk belanja berantai SHA-256',
-          'ikon': Icons.link_rounded,
-          'warna': Colors.blueGrey.shade800,
-          'halaman': const HalamanSertifikatBlockchain(),
-          'tag': 'Web3 Ledger',
-        },
       ]);
     }
 
@@ -235,7 +229,7 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
             const SizedBox(height: 6),
             Text(
               adalahTraveler
-                  ? 'Akses utilitas khusus belanja internasional: kelola pesanan masuk, pantau kurs, cek aturan bagasi koper, dan enkripsi blockchain.'
+                  ? 'Akses utilitas khusus belanja internasional: kelola pesanan masuk, pantau kurs, cek aturan bagasi koper, dan keamanan saldo rekber.'
                   : 'Seluruh fitur canggih terintegrasi untuk mendukung kenyamanan transaksi titipan belanja mancanegara Anda.',
               style: const TextStyle(fontSize: 12.5, color: Colors.black54),
             ),

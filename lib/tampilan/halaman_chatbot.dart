@@ -29,6 +29,8 @@ class _HalamanChatbotState extends State<HalamanChatbot> {
   ];
 
   final List<String> _pertanyaanCepat = [
+    'Barang termahal & termurah di aplikasi',
+    'Katalog produk jastip',
     'Aturan Bea Cukai & Pajak',
     'Oleh-oleh populer Jepang',
     'Rekomendasi jastip London',
@@ -193,7 +195,7 @@ class _HalamanChatbotState extends State<HalamanChatbot> {
 
           // Pilihan Pertanyaan Cepat (Chips)
           Container(
-            height: 40,
+            height: 44,
             margin: const EdgeInsets.only(bottom: 8),
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
@@ -204,6 +206,8 @@ class _HalamanChatbotState extends State<HalamanChatbot> {
                 return Padding(
                   padding: const EdgeInsets.only(right: 6.0),
                   child: ActionChip(
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     label: Text(q, style: const TextStyle(fontSize: 11)),
                     backgroundColor: Colors.white,
                     side: BorderSide(color: Colors.teal.shade200),

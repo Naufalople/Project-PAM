@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_otentikasi.dart';
+import '../layanan/layanan_rekber.dart';
 import '../model/model_pesanan_jastip.dart';
 import 'halaman_chat_traveler.dart';
 import 'halaman_kelola_pesanan_traveler.dart';
 import 'halaman_peta_lokasi.dart';
-import 'halaman_sertifikat_blockchain.dart';
 
 // Halaman Khusus Status & Pelacakan Pesanan untuk Pemesan
 // Fitur Khusus Sisi Pemesan:
@@ -43,6 +43,8 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
   ModelPesananJastip? _pesananAktif;
   bool _sedangMemuat = true;
   String _peranAktif = 'PEMESAN';
+  // Kategori filter tab: 'BELUM_DITERIMA' atau 'SUDAH_DITERIMA' (Poin 5)
+  String _kategoriTab = 'BELUM_DITERIMA';
 
   @override
   void initState() {
@@ -51,59 +53,72 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
   }
 
   Future<void> _muatDaftarPesanan() async {
-    final list = LayananBasisDataLokal.ambilSemuaPesanan();
+    final profil = await LayananOtentikasi.ambilProfilAktif();
     final peran = await LayananOtentikasi.ambilPeranAktif();
+    final list = LayananBasisDataLokal.ambilPesananUntukPengguna(
+      userId: profil?.id.toString(),
+      email: profil?.email,
+    );
     if (!mounted) return;
     setState(() {
       _peranAktif = peran;
       _daftarPesanan = list;
       _sedangMemuat = false;
 
-      if (list.isNotEmpty) {
-        final targetId = widget.idPesananTerpilih ?? widget.idPesanan;
-        if (targetId != null && targetId.isNotEmpty) {
-          _pesananAktif = list.firstWhere(
-            (p) => p.idPesanan == targetId,
-            orElse: () => list.first,
-          );
-        } else {
-          _pesananAktif = list.first;
+      final pesananBelumDiterima = list.where((p) => p.apakahBelumDiterima).toList();
+      final pesananSudahDiterima = list.where((p) => p.apakahSudahDiterima).toList();
+
+      final targetId = widget.idPesananTerpilih ?? widget.idPesanan;
+      if (targetId != null && targetId.isNotEmpty) {
+        final dicari = list.where((p) => p.idPesanan == targetId).firstOrNull;
+        if (dicari != null) {
+          _kategoriTab = dicari.apakahSudahDiterima ? 'SUDAH_DITERIMA' : 'BELUM_DITERIMA';
+          _pesananAktif = dicari;
+          return;
         }
+      }
+
+      final listTampil = _kategoriTab == 'BELUM_DITERIMA' ? pesananBelumDiterima : pesananSudahDiterima;
+      if (listTampil.isNotEmpty) {
+        _pesananAktif = listTampil.first;
+      } else if (pesananBelumDiterima.isNotEmpty) {
+        _kategoriTab = 'BELUM_DITERIMA';
+        _pesananAktif = pesananBelumDiterima.first;
+      } else if (pesananSudahDiterima.isNotEmpty) {
+        _kategoriTab = 'SUDAH_DITERIMA';
+        _pesananAktif = pesananSudahDiterima.first;
       } else {
         _pesananAktif = null;
       }
     });
   }
 
-  // Pemesan Konfirmasi Barang Diterima & Sesuai
+  // Pemesan Konfirmasi Barang Diterima & Sesuai (Poin 5)
   Future<void> _pemesanKonfirmasiDiterima({bool karenaBatasWaktu5Hari = false}) async {
     if (_pesananAktif == null) return;
     final pesanan = _pesananAktif!;
 
-    const statusBaru = 6;
-    const lokasiBaru = 'Telah Diterima Pemesan di Alamat Tujuan (Transaksi Selesai) 🎉';
+    // Perbarui status pesanan menjadi 6 (Selesai/Sudah Diterima) di database
+    await LayananBasisDataLokal.konfirmasiPesananDiterima(pesanan.idPesanan);
 
-    await LayananBasisDataLokal.perbaruiStatusPesanan(
-      pesanan.idPesanan,
-      tahapStatus: statusBaru,
-      lokasiTerkini: lokasiBaru,
-      metodePenyerahan: pesanan.metodePenyerahan,
-    );
+    // Lepaskan dana Rekber (Release Fund) ke Saldo Aktif Traveler
+    await LayananRekber.lepaskanDanaKeTraveler(pesanan: pesanan);
 
     setState(() {
-      pesanan.tahapStatus = statusBaru;
-      pesanan.lokasiTerkini = lokasiBaru;
+      pesanan.tahapStatus = 6;
+      pesanan.lokasiTerkini = 'Telah Diterima Pemesan di Alamat Tujuan (Transaksi Selesai) 🎉';
+      // Otomatis pindahkan tampilan filter ke kategori 'SUDAH_DITERIMA'
+      _kategoriTab = 'SUDAH_DITERIMA';
+      _pesananAktif = pesanan;
     });
-
-    final String formatUang = _formatRupiah(pesanan.totalHargaIdr);
 
     if (!mounted) return;
     LayananNotifikasi.kirimNotifikasi(
       context,
       judul: karenaBatasWaktu5Hari
           ? 'Pesanan #${pesanan.idPesanan} Selesai Otomatis (5 Hari)'
-          : 'Barang Berhasil Diterima Pemesan! 🎉',
-      pesan: 'Dana Rp $formatUang resmi dicairkan dari Rekber Escrow sistem ke dompet traveler ${pesanan.namaTraveler}.',
+          : 'Pesanan #${pesanan.idPesanan} Berhasil Diterima! 🎉',
+      pesan: 'Status pesanan berpindah ke daftar "Sudah Diterima". Terima kasih telah mengonfirmasi penerimaan barang titipan Anda.',
       ikon: Icons.verified_rounded,
       warna: Colors.green.shade800,
     );
@@ -136,7 +151,8 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
           elevation: 0,
         ),
         body: Center(
-          child: Padding(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.all(28.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -192,17 +208,18 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
     }
 
     // Tampilan Bersih jika Pengguna Belum Memesan Barang Apapun
-    if (_daftarPesanan.isEmpty || _pesananAktif == null) {
+    if (_daftarPesanan.isEmpty) {
       return Scaffold(
         backgroundColor: const Color(0xFFF7F9FC),
         appBar: AppBar(
-          title: const Text('Status & Pelacakan Pesanan'),
+          title: const Text('Pelacakan Status Pesanan'),
           backgroundColor: Colors.teal.shade800,
           foregroundColor: Colors.white,
           elevation: 0,
         ),
         body: Center(
-          child: Padding(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.all(28.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -245,34 +262,32 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
       );
     }
 
-    final pesanan = _pesananAktif!;
-    final int tahap = pesanan.tahapStatus;
+    final pesananBelumDiterima = _daftarPesanan.where((p) => p.apakahBelumDiterima).toList();
+    final pesananSudahDiterima = _daftarPesanan.where((p) => p.apakahSudahDiterima).toList();
+    final listTampil = _kategoriTab == 'BELUM_DITERIMA' ? pesananBelumDiterima : pesananSudahDiterima;
+
+    ModelPesananJastip? pesanan = _pesananAktif;
+    if (pesanan != null && !listTampil.any((p) => p.idPesanan == pesanan!.idPesanan)) {
+      pesanan = listTampil.isNotEmpty ? listTampil.first : null;
+    } else if (pesanan == null && listTampil.isNotEmpty) {
+      pesanan = listTampil.first;
+    }
+
+    final int tahap = pesanan?.tahapStatus ?? 1;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
       appBar: AppBar(
-        title: const Text('Pelacakan Pesanan & Rekber'),
+        title: const Text('Pelacakan Status Pesanan'),
         backgroundColor: Colors.teal.shade800,
         foregroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          IconButton(
-            tooltip: 'Sertifikat Blockchain Struk',
-            icon: const Icon(Icons.link_rounded),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const HalamanSertifikatBlockchain()),
-              );
-            },
-          ),
-        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: Colors.teal.shade800,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.forum_rounded),
-        label: const Text('Chat Traveler (Dimas Pratama)'),
+        label: const Text('Chat Langsung Traveler'),
         onPressed: () {
           Navigator.push(
             context,
@@ -288,171 +303,370 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // DAFTAR PILIHAN PESANAN SAYA
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Daftar Pesanan Saya:',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
-                ),
-                Text(
-                  '${_daftarPesanan.length} Pesanan Aktif',
-                  style: TextStyle(fontSize: 11, color: Colors.teal.shade800, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            SizedBox(
-              height: 74,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                itemCount: _daftarPesanan.length,
-                itemBuilder: (context, index) {
-                  final p = _daftarPesanan[index];
-                  final bool terpilih = p.idPesanan == pesanan.idPesanan;
-
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _pesananAktif = p;
-                      });
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: 190,
-                      margin: const EdgeInsets.only(right: 10, bottom: 4),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: terpilih ? Colors.teal.shade800 : Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: terpilih ? Colors.teal.shade800 : Colors.grey.shade300,
-                          width: terpilih ? 2 : 1,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: terpilih ? 0.08 : 0.03),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                p.negaraAsal,
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: terpilih ? Colors.white : Colors.black87,
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: terpilih ? Colors.teal.shade700 : Colors.teal.shade50,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  '${p.daftarBarang.length} Item',
-                                  style: TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.bold,
-                                    color: terpilih ? Colors.white : Colors.teal.shade900,
+            // ========================================================
+            // FILTER KATEGORI PESANAN (POIN 5: BELUM / SUDAH DITERIMA)
+            // ========================================================
+            Container(
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () {
+                        setState(() {
+                          _kategoriTab = 'BELUM_DITERIMA';
+                          final listFilter = _daftarPesanan.where((p) => p.apakahBelumDiterima).toList();
+                          _pesananAktif = listFilter.isNotEmpty ? listFilter.first : null;
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _kategoriTab == 'BELUM_DITERIMA' ? Colors.white : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: _kategoriTab == 'BELUM_DITERIMA'
+                              ? [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.08),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
                                   ),
+                                ]
+                              : null,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.pending_actions_rounded,
+                              size: 16,
+                              color: _kategoriTab == 'BELUM_DITERIMA' ? Colors.teal.shade800 : Colors.black54,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Belum Diterima',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: _kategoriTab == 'BELUM_DITERIMA' ? FontWeight.bold : FontWeight.w500,
+                                color: _kategoriTab == 'BELUM_DITERIMA' ? Colors.teal.shade900 : Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: _kategoriTab == 'BELUM_DITERIMA' ? Colors.teal.shade800 : Colors.grey.shade400,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${pesananBelumDiterima.length}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            p.idPesanan,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: terpilih ? Colors.white70 : Colors.black54,
                             ),
-                          ),
-                          Text(
-                            'Rp ${_formatRupiah(p.totalHargaIdr)}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w900,
-                              color: terpilih ? Colors.amber.shade300 : Colors.teal.shade900,
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // KARTU LOKASI FISIK BARANG LIVE
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.teal.shade800, Colors.teal.shade900],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.teal.withValues(alpha: 0.2),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () {
+                        setState(() {
+                          _kategoriTab = 'SUDAH_DITERIMA';
+                          final listFilter = _daftarPesanan.where((p) => p.apakahSudahDiterima).toList();
+                          _pesananAktif = listFilter.isNotEmpty ? listFilter.first : null;
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _kategoriTab == 'SUDAH_DITERIMA' ? Colors.white : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: _kategoriTab == 'SUDAH_DITERIMA'
+                              ? [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.08),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.task_alt_rounded,
+                              size: 16,
+                              color: _kategoriTab == 'SUDAH_DITERIMA' ? Colors.green.shade700 : Colors.black54,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Sudah Diterima',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: _kategoriTab == 'SUDAH_DITERIMA' ? FontWeight.bold : FontWeight.w500,
+                                color: _kategoriTab == 'SUDAH_DITERIMA' ? Colors.green.shade800 : Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: _kategoriTab == 'SUDAH_DITERIMA' ? Colors.green.shade700 : Colors.grey.shade400,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${pesananSudahDiterima.length}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+
+            if (listTampil.isEmpty) ...[
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 20),
+                padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade200),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 6, offset: const Offset(0, 2)),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _kategoriTab == 'BELUM_DITERIMA'
+                          ? Icons.check_circle_outline_rounded
+                          : Icons.inventory_2_outlined,
+                      size: 48,
+                      color: _kategoriTab == 'BELUM_DITERIMA' ? Colors.green.shade600 : Colors.grey.shade400,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _kategoriTab == 'BELUM_DITERIMA'
+                          ? 'Semua Pesanan Telah Diterima! 🎉'
+                          : 'Belum Ada Pesanan yang Diterima',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _kategoriTab == 'BELUM_DITERIMA'
+                          ? 'Tidak ada pesanan aktif yang sedang berjalan. Buka tab "Sudah Diterima" untuk melihat riwayat pesanan Anda yang telah selesai.'
+                          : 'Setelah pesanan tiba dan Anda menekan tombol "Pesanan Diterima", pesanan akan otomatis berpindah dan tersimpan di tab ini.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 11.5, color: Colors.black54, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              // DAFTAR PILIHAN PESANAN DALAM KATEGORI
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
+                  Text(
+                    _kategoriTab == 'BELUM_DITERIMA' ? 'Pesanan Belum Diterima:' : 'Pesanan Sudah Diterima:',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
+                  ),
+                  Text(
+                    '${listTampil.length} Pesanan',
+                    style: TextStyle(fontSize: 11, color: Colors.teal.shade800, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              SizedBox(
+                height: 94,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: listTampil.length,
+                  itemBuilder: (context, index) {
+                    final p = listTampil[index];
+                    final bool terpilih = pesanan != null && p.idPesanan == pesanan.idPesanan;
+
+                    return GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _pesananAktif = p;
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 190,
+                        margin: const EdgeInsets.only(right: 10, bottom: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
+                          color: terpilih ? Colors.teal.shade800 : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: terpilih ? Colors.teal.shade800 : Colors.grey.shade300,
+                            width: terpilih ? 2 : 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: terpilih ? 0.08 : 0.03),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
-                        child: const Icon(Icons.my_location_rounded, color: Colors.amberAccent, size: 18),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    p.negaraAsal,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: terpilih ? Colors.white : Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: terpilih ? Colors.teal.shade700 : Colors.teal.shade50,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '${p.daftarBarang.length} Item',
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: terpilih ? Colors.white : Colors.teal.shade900,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              p.idPesanan,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: terpilih ? Colors.white70 : Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Rp ${_formatRupiah(p.totalHargaIdr)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                                color: terpilih ? Colors.amber.shade300 : Colors.teal.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'LOKASI FISIK BARANG TITIPAN SAAT INI:',
-                          style: TextStyle(
-                            color: Colors.amberAccent,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.5,
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+
+            if (pesanan != null) ...[
+              // KARTU LOKASI FISIK BARANG LIVE
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.teal.shade800, Colors.teal.shade900],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.teal.withValues(alpha: 0.2),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.my_location_rounded, color: Colors.amberAccent, size: 18),
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'LOKASI FISIK BARANG TITIPAN SAAT INI:',
+                            style: TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.5,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    pesanan.lokasiTerkini,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      height: 1.3,
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 4),
+                    const SizedBox(height: 8),
+                    Text(
+                      pesanan.lokasiTerkini,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                   Text(
                     'Traveler: ${pesanan.namaTraveler} • Asal: ${pesanan.negaraAsal}',
                     style: const TextStyle(color: Colors.white70, fontSize: 11),
@@ -515,11 +729,11 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
                           ),
                         ),
                         child: Text(
-                          tahap == 6 ? 'DANA SUDAH CAIR' : 'REKBER AKTIF',
+                          tahap == 6 ? 'SELESAI' : 'DIPROSES',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: tahap == 6 ? Colors.green.shade800 : Colors.amber.shade900,
+                            color: tahap == 6 ? Colors.green.shade800 : Colors.teal.shade800,
                           ),
                         ),
                       ),
@@ -637,29 +851,11 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
               nomor: 3,
               judul: '3. Barang Sudah Dibeli di Toko Resmi Luar Negeri',
               deskripsi: tahap >= 3
-                  ? 'Semua ${pesanan.daftarBarang.length} barang telah dibeli oleh traveler. Struk belanja fisik dicatat ke SHA-256 Blockchain JastipGo.'
+                  ? 'Semua ${pesanan.daftarBarang.length} barang telah berhasil dibeli oleh traveler di toko resmi.'
                   : 'Menunggu konfirmasi pembelian barang dari traveler.',
               ikon: Icons.storefront_rounded,
               sudahLewat: tahap >= 3,
               sedangAktif: tahap == 3,
-              aksiTambahan: tahap >= 3
-                  ? ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.teal.shade700,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const HalamanSertifikatBlockchain()),
-                        );
-                      },
-                      icon: const Icon(Icons.verified, size: 14),
-                      label: const Text('Lihat Bukti Struk di Blockchain', style: TextStyle(fontSize: 10.5)),
-                    )
-                  : null,
             ),
 
             // STEP 4: Dalam Penerbangan ke Indonesia
@@ -802,56 +998,127 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
             ),
             const SizedBox(height: 18),
 
-            // KOTAK KONFIRMASI TERIMA BARANG PEMESAN
-            if (tahap == 5) ...[
+            // ========================================================
+            // KOTAK KONFIRMASI TERIMA BARANG PEMESAN (POIN 5)
+            // ========================================================
+            if (tahap >= 4 && tahap < 6) ...[
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.green.shade300, width: 1.5),
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 3)),
+                    BoxShadow(
+                      color: Colors.green.withValues(alpha: 0.08),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
                   ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade100,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.mark_email_read_rounded, color: Colors.green.shade800, size: 20),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Konfirmasi Penerimaan Barang',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                              Text(
+                                tahap == 4
+                                    ? 'Barang sedang dalam perjalanan ke Indonesia'
+                                    : 'Barang sudah tiba dan siap serah terima',
+                                style: TextStyle(fontSize: 11, color: Colors.teal.shade800),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Pastikan Anda telah memeriksa fisik barang titipan. Tekan tombol di bawah untuk mengonfirmasi bahwa barang telah Anda terima. Pesanan akan otomatis berpindah ke daftar "Sudah Diterima".',
+                      style: TextStyle(fontSize: 11, color: Colors.black54, height: 1.4),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green.shade700,
+                          foregroundColor: Colors.white,
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () => _pemesanKonfirmasiDiterima(karenaBatasWaktu5Hari: false),
+                        icon: const Icon(Icons.check_circle_rounded, size: 20),
+                        label: const Text(
+                          'PESANAN DITERIMA & SESUAI',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, letterSpacing: 0.3),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Center(
+                      child: TextButton.icon(
+                        onPressed: () => _pemesanKonfirmasiDiterima(karenaBatasWaktu5Hari: true),
+                        icon: const Icon(Icons.fast_forward_rounded, size: 15, color: Colors.black54),
+                        label: const Text('Simulasi: Auto-Selesai Garansi 5 Hari', style: TextStyle(fontSize: 10.5, color: Colors.black54)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (tahap < 4) ...[
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.amber.shade200),
                 ),
                 child: Column(
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.timer_outlined, color: Colors.teal, size: 20),
-                        const SizedBox(width: 8),
+                        Icon(Icons.info_outline_rounded, color: Colors.amber.shade800, size: 20),
+                        const SizedBox(width: 10),
                         const Expanded(
                           child: Text(
-                            'Masa Tunggu Konfirmasi: 5 Hari',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+                            'Barang masih dalam proses pembelian di luar negeri. Tombol konfirmasi penerimaan akan aktif setelah barang diantar/dikirim ke Indonesia.',
+                            style: TextStyle(fontSize: 11, color: Colors.black87),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Sesuai ketentuan Rekber Escrow, jika barang sudah diterima dan tidak ada komplain dalam 5 hari, sistem secara otomatis menyelesaikan pesanan dan mencairkan uang ke traveler.',
-                      style: TextStyle(fontSize: 11, color: Colors.black54),
-                    ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
-                      height: 46,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green.shade700,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.green.shade800,
+                          side: BorderSide(color: Colors.green.shade700),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
                         onPressed: () => _pemesanKonfirmasiDiterima(karenaBatasWaktu5Hari: false),
-                        icon: const Icon(Icons.check_circle, size: 18),
-                        label: const Text('BARANG SUDAH DITERIMA & SESUAI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        icon: const Icon(Icons.check_circle_outline, size: 18),
+                        label: const Text('Konfirmasi Pesanan Diterima Sekarang (Tes Cepat)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextButton.icon(
-                      onPressed: () => _pemesanKonfirmasiDiterima(karenaBatasWaktu5Hari: true),
-                      icon: const Icon(Icons.fast_forward_rounded, size: 15, color: Colors.black54),
-                      label: const Text('Simulasi: Auto-Selesai (Batas 5 Hari Terlewati)', style: TextStyle(fontSize: 10.5, color: Colors.black54)),
                     ),
                   ],
                 ),
@@ -873,13 +1140,13 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Transaksi Pesanan Selesai!',
+                            'Pesanan Sudah Diterima (Selesai)!',
                             style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade900, fontSize: 13.5),
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            'Uang Rp ${_formatRupiah(pesanan.totalHargaIdr)} telah resmi dicairkan ke dompet traveler ${pesanan.namaTraveler}.',
-                            style: const TextStyle(fontSize: 11, color: Colors.black87),
+                          const Text(
+                            'Pesanan ini telah selesai dan tercatat dalam kategori "Sudah Diterima". Terima kasih telah berbelanja via JastipGo.',
+                            style: TextStyle(fontSize: 11, color: Colors.black87),
                           ),
                         ],
                       ),
@@ -888,6 +1155,7 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
                 ),
               ),
             ],
+            ], // Penutup if (pesanan != null)
             const SizedBox(height: 80),
           ],
         ),

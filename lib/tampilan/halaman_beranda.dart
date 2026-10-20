@@ -5,6 +5,7 @@ import '../layanan/layanan_api.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_otentikasi.dart';
+import '../layanan/layanan_sensor.dart';
 import '../widget/kartu_barang.dart';
 import 'halaman_detail_barang.dart';
 import 'halaman_chat_traveler.dart';
@@ -28,6 +29,7 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
   bool _sedangMemuat = true;
   String? _pesanError;
   String _peranAktif = 'PEMESAN';
+  String _destinasiTraveler = 'Jepang';
 
   final List<String> _daftarKategori = [
     'Semua',
@@ -49,6 +51,29 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
     super.dispose();
   }
 
+  void _bukaDialogPencarianSuara() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ModalPencarianSuara(
+        onKataKunciDidapat: (kataKunci) {
+          setState(() {
+            _pencarianController.text = kataKunci;
+          });
+          _muatDataBarang();
+          LayananNotifikasi.kirimNotifikasi(
+            context,
+            judul: 'Pencarian Suara 🎙️',
+            pesan: 'Mencari produk dengan kata kunci: "$kataKunci"',
+            ikon: Icons.mic_rounded,
+            warna: Colors.teal.shade800,
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _muatDataBarang() async {
     setState(() {
       _sedangMemuat = true;
@@ -62,9 +87,11 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
         urutanHarga: _urutanHarga,
       );
       final peran = await LayananOtentikasi.ambilPeranAktif();
+      final destinasi = await LayananOtentikasi.ambilDestinasiAktifTraveler();
       if (!mounted) return;
       setState(() {
         _peranAktif = peran;
+        _destinasiTraveler = destinasi;
         _daftarBarang = hasil;
         _sedangMemuat = false;
         _pesanError = null;
@@ -78,8 +105,39 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
     }
   }
 
-  // Tambahkan barang langsung ke keranjang Hive
+  // Tambahkan barang langsung ke keranjang Hive dengan validasi rute destinasi (Poin 4)
   Future<void> _tambahBarangKeKeranjang(ModelBarangJastip barang) async {
+    final destinasi = await LayananOtentikasi.ambilDestinasiAktifTraveler();
+    if (!LayananOtentikasi.apakahNegaraSesuai(barang.negara, destinasi)) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(Icons.flight_land_rounded, color: Colors.deepOrange.shade700),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text('Rute Berbeda', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          content: Text(
+            'Traveler saat ini sedang aktif bertugas pada rute perjalanan $destinasi.\n\nAnda hanya dapat menitip barang yang berasal dari $destinasi untuk rute perjalanan ini.',
+            style: const TextStyle(fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Mengerti', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final itemKeranjang = ModelKeranjang(
       idBarang: barang.id,
       namaBarang: barang.namaBarang,
@@ -211,9 +269,20 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
                           ),
                         ),
                         const Spacer(),
-                        const Text(
-                          'London • Tokyo • Seoul • SG',
-                          style: TextStyle(color: Colors.white70, fontSize: 11),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.shade400,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '📍 Rute: $_destinasiTraveler',
+                            style: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -231,8 +300,8 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
                     const SizedBox(height: 4),
                     Text(
                       _peranAktif == 'TRAVELER'
-                          ? 'Pantau pesanan belanja masuk dari pemesan, cek batas bawaan koper, dan pantau harga pasar.'
-                          : 'Jaminan 100% Original dengan Sertifikat Struk Blockchain & Kurs Terkini.',
+                          ? 'Rute tugas aktif: $_destinasiTraveler. Anda dapat mengubah destinasi di menu Profil.'
+                          : 'Traveler saat ini melayani rute: $_destinasiTraveler. Jaminan 100% Produk Original & Bergaransi.',
                       style: const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   ],
@@ -259,15 +328,25 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
                   decoration: InputDecoration(
                     hintText: 'Cari barang, oleh-oleh, atau toko...',
                     prefixIcon: const Icon(Icons.search, color: Colors.teal),
-                    suffixIcon: _pencarianController.text.isNotEmpty
-                        ? IconButton(
+                    suffixIcon: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_pencarianController.text.isNotEmpty)
+                          IconButton(
                             icon: const Icon(Icons.clear, size: 18),
                             onPressed: () {
                               _pencarianController.clear();
                               _muatDataBarang();
                             },
-                          )
-                        : null,
+                          ),
+                        IconButton(
+                          icon: const Icon(Icons.mic_rounded, color: Colors.teal),
+                          tooltip: 'Pencarian Suara (Voice Search)',
+                          onPressed: _bukaDialogPencarianSuara,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                    ),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(vertical: 14),
                   ),
@@ -465,6 +544,261 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Modal Bottom Sheet Sensor Suara untuk Pencarian Cepat di Beranda
+class _ModalPencarianSuara extends StatefulWidget {
+  final Function(String kataKunci) onKataKunciDidapat;
+
+  const _ModalPencarianSuara({required this.onKataKunciDidapat});
+
+  @override
+  State<_ModalPencarianSuara> createState() => _ModalPencarianSuaraState();
+}
+
+class _ModalPencarianSuaraState extends State<_ModalPencarianSuara>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animasiPulse;
+  bool _sedangMendengarkan = false;
+  String _teksUcapan = '';
+  String _status = 'Mengaktifkan sensor mikrofon...';
+
+  @override
+  void initState() {
+    super.initState();
+    _animasiPulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mulaiDengar();
+    });
+  }
+
+  @override
+  void dispose() {
+    LayananSensorSuara.berhenti();
+    _animasiPulse.dispose();
+    super.dispose();
+  }
+
+  Future<void> _mulaiDengar() async {
+    setState(() {
+      _sedangMendengarkan = true;
+      _status = '🔴 Mendengarkan suara Anda... Silakan berbicara.';
+    });
+
+    await LayananSensorSuara.mulaiMendengarkan(
+      bahasa: 'id_ID',
+      saatMendengar: (hasilTeks, finalResult) {
+        if (!mounted) return;
+        setState(() {
+          _teksUcapan = hasilTeks;
+          if (finalResult) {
+            _sedangMendengarkan = false;
+            _status = 'Berhasil mengenali: "$hasilTeks"';
+          }
+        });
+        if (finalResult && hasilTeks.trim().isNotEmpty) {
+          Future.delayed(const Duration(milliseconds: 400), () {
+            if (mounted) {
+              Navigator.pop(context);
+              widget.onKataKunciDidapat(hasilTeks);
+            }
+          });
+        }
+      },
+      saatError: (err) {
+        if (!mounted) return;
+        setState(() {
+          _sedangMendengarkan = false;
+          _status = err;
+        });
+      },
+    );
+  }
+
+  void _pilihContoh(String contoh) {
+    LayananSensorSuara.berhenti();
+    Navigator.pop(context);
+    widget.onKataKunciDidapat(contoh);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.mic_rounded, color: Colors.teal.shade800, size: 22),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Pencarian Suara (Voice Search)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ],
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Tombol Mic Berdenyut
+          GestureDetector(
+            onTap: () {
+              if (_sedangMendengarkan) {
+                LayananSensorSuara.berhenti();
+                setState(() {
+                  _sedangMendengarkan = false;
+                  _status = 'Mikrofon dijeda. Ketuk untuk mengulang.';
+                });
+              } else {
+                _mulaiDengar();
+              }
+            },
+            child: AnimatedBuilder(
+              animation: _animasiPulse,
+              builder: (context, child) {
+                return Container(
+                  padding: const EdgeInsets.all(22),
+                  decoration: BoxDecoration(
+                    color: _sedangMendengarkan ? Colors.teal.shade700 : Colors.teal.shade800,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.teal.withValues(
+                          alpha: 0.25 + (_sedangMendengarkan ? _animasiPulse.value * 0.45 : 0),
+                        ),
+                        blurRadius: 16 + (_sedangMendengarkan ? _animasiPulse.value * 12 : 0),
+                        spreadRadius: 2 + (_sedangMendengarkan ? _animasiPulse.value * 6 : 0),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    _sedangMendengarkan ? Icons.mic_rounded : Icons.mic_none_rounded,
+                    color: Colors.white,
+                    size: 36,
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          Text(
+            _status,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: _sedangMendengarkan ? Colors.teal.shade900 : Colors.black54,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 10),
+
+          // Teks Hasil Live Transkrip
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF7F9FC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.teal.shade100),
+            ),
+            child: Text(
+              _teksUcapan.isNotEmpty
+                  ? '"$_teksUcapan"'
+                  : 'Katakan nama produk (contoh: Tokyo Banana, Gundam, Matcha)...',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                fontStyle: _teksUcapan.isNotEmpty ? FontStyle.normal : FontStyle.italic,
+                color: _teksUcapan.isNotEmpty ? Colors.teal.shade900 : Colors.black45,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Quick Chips
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Atau pilih contoh suara:',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black54),
+            ),
+          ),
+          const SizedBox(height: 6),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              children: LayananSensorSuara.daftarContohSuara.map((contoh) {
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ActionChip(
+                    avatar: const Icon(Icons.mic, size: 14, color: Colors.teal),
+                    backgroundColor: const Color(0xFFF0FDF4),
+                    side: BorderSide(color: Colors.teal.shade200),
+                    label: Text(
+                      contoh,
+                      style: TextStyle(fontSize: 11, color: Colors.teal.shade900, fontWeight: FontWeight.w600),
+                    ),
+                    onPressed: () => _pilihContoh(contoh),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+
+          if (_teksUcapan.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal.shade800,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () {
+                  LayananSensorSuara.berhenti();
+                  Navigator.pop(context);
+                  widget.onKataKunciDidapat(_teksUcapan);
+                },
+                icon: const Icon(Icons.search, size: 18),
+                label: Text('Cari "$_teksUcapan" Sekarang'),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

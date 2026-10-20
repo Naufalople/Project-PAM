@@ -42,6 +42,9 @@ class ModelItemPesanan {
 // Model data untuk Pesanan Jastip Lengkap (Disimpan di Hive)
 class ModelPesananJastip {
   final String idPesanan;
+  final String? userId; // ID Unik akun pengguna pembuat pesanan
+  final String? emailPemesan; // Email akun pemesan untuk isolasi pelacakan
+  final String? namaPemesan;
   final DateTime tanggal;
   final String negaraAsal;
   final String namaTraveler;
@@ -52,8 +55,15 @@ class ModelPesananJastip {
   final int totalHargaIdr;
   final List<ModelItemPesanan> daftarBarang;
 
+  // Poin 5: Kategori Status Penerimaan Pesanan (Belum Diterima / Sudah Diterima)
+  bool get apakahSudahDiterima => tahapStatus >= 6;
+  bool get apakahBelumDiterima => tahapStatus < 6;
+
   ModelPesananJastip({
     required this.idPesanan,
+    this.userId,
+    this.emailPemesan,
+    this.namaPemesan,
     required this.tanggal,
     required this.negaraAsal,
     required this.namaTraveler,
@@ -74,6 +84,9 @@ class ModelPesananJastip {
 
     return ModelPesananJastip(
       idPesanan: map['idPesanan'] as String? ?? 'PO-JSTP-000000',
+      userId: map['userId']?.toString(),
+      emailPemesan: map['emailPemesan']?.toString(),
+      namaPemesan: map['namaPemesan']?.toString(),
       tanggal: map['tanggal'] != null
           ? DateTime.parse(map['tanggal'] as String)
           : DateTime.now(),
@@ -91,6 +104,9 @@ class ModelPesananJastip {
   Map<String, dynamic> keMap() {
     return {
       'idPesanan': idPesanan,
+      if (userId != null) 'userId': userId,
+      if (emailPemesan != null) 'emailPemesan': emailPemesan,
+      if (namaPemesan != null) 'namaPemesan': namaPemesan,
       'tanggal': tanggal.toIso8601String(),
       'negaraAsal': negaraAsal,
       'namaTraveler': namaTraveler,

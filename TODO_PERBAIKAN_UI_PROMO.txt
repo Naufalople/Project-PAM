@@ -1,0 +1,46 @@
+================================================================================
+              DAFTAR PERBAIKAN UI OVERFLOW, CHAT, & ISOLASI PROMO
+================================================================================
+
+Tolong perbaiki dan implementasikan 4 kelompok perbaikan berikut pada codebase:
+
+--------------------------------------------------------------------------------
+1. PERBAIKAN BUG UI OVERFLOW DI BEBERAPA HALAMAN
+--------------------------------------------------------------------------------
+- Target Lokasi:
+  a. Kalkulator Kurs: Error saat mengganti mata uang negara singgah.
+  b. Pengaturan Traveler: Error saat mengubah negara destinasi.
+  c. Halaman Pembayaran (Sisi Pemesan): Error di area potongan diskon.
+- Masalah: Muncul error batas layar (Bottom Overflowed by pixels).
+- Instruksi:
+  1. Bungkus area widget yang melebihi batas layar dengan `SingleChildScrollView`.
+  2. Atau gunakan `Expanded` / `Flexible` dengan benar agar layout responsif dan tidak overflow, TANPA mengubah fungsi aslinya.
+
+--------------------------------------------------------------------------------
+2. PEMBERSIHAN TEKS LABEL PADA ZONA WAKTU DUNIA
+--------------------------------------------------------------------------------
+- Target File: Halaman Jam Dunia / Zona Waktu
+- Masalah: Terlalu banyak teks deskripsi yang membuat UI terlalu penuh.
+- Instruksi:
+  1. Hapus teks/label deskriptif seperti: "toko tutup(malam)", "zona waktu utama pemesan", "zona waktu pemesan", dan "zona belanja jastip asia".
+  2. Sisakan hanya informasi intinya saja, yaitu: Nama Wilayah dan Jam saat ini.
+
+--------------------------------------------------------------------------------
+3. SINKRONISASI NAMA PENGGUNA PADA INBOX CHAT
+--------------------------------------------------------------------------------
+- Target File: Halaman Daftar Pesan (Inbox) sisi Pemesan
+- Masalah: Nama di daftar inbox masih hardcoded menjadi "dimas pratama" dan tidak sesuai dengan nama asli akun.
+- Instruksi:
+  1. Hapus nama statis tersebut di bagian list inbox.
+  2. Ambil dan tampilkan nama dinamis yang sesuai dengan profil akun yang sedang berkomunikasi. Pastikan nama di daftar inbox sama persis dengan nama yang muncul saat ruang chat (room chat) dibuka.
+
+--------------------------------------------------------------------------------
+4. ISOLASI DATA PROMO / VOUCHER BERDASARKAN AKUN
+--------------------------------------------------------------------------------
+- Target File: Layanan Promo, State Management, dan Layanan Basis Data (Database Lokal)
+- Masalah: Daftar promo terbawa saat ganti akun. Kupon dari Akun 1 bisa terpakai atau hilang karena terlihat di Akun 2.
+- Instruksi:
+  1. Berikan pengenal unik (User ID) pada setiap kupon atau promo yang disimpan ke database lokal.
+  2. Filter kueri database: Saat memuat daftar promo, muat HANYA kupon yang terikat dengan User ID milik akun yang sedang login saat ini.
+  3. Bersihkan memori (clear state) promo saat pengguna logout agar promo tiap akun benar-benar terpisah dan mandiri.
+================================================================================

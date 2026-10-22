@@ -15,7 +15,9 @@ import 'halaman_pencarian_suara.dart';
 
 // Halaman Hub Fitur Cerdas: Pusat Navigasi Berbasis Peran (RBAC Pemesan vs Traveler)
 class HalamanFiturCerdas extends StatefulWidget {
-  const HalamanFiturCerdas({super.key});
+  final String? peranOverride;
+
+  const HalamanFiturCerdas({super.key, this.peranOverride});
 
   @override
   State<HalamanFiturCerdas> createState() => _HalamanFiturCerdasState();
@@ -28,7 +30,23 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
   @override
   void initState() {
     super.initState();
-    _muatPeran();
+    if (widget.peranOverride != null) {
+      _peranAktif = widget.peranOverride!;
+      _sedangMemuat = false;
+    } else {
+      _muatPeran();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant HalamanFiturCerdas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.peranOverride != null && widget.peranOverride != oldWidget.peranOverride) {
+      setState(() {
+        _peranAktif = widget.peranOverride!;
+        _sedangMemuat = false;
+      });
+    }
   }
 
   Future<void> _muatPeran() async {

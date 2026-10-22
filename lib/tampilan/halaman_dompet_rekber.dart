@@ -12,7 +12,9 @@ import '../model/model_transaksi_rekber.dart';
 /// 2. Saldo Aktif: Uang pesanan yang telah dikonfirmasi "Sudah Diterima" oleh pemesan (siap ditarik).
 /// 3. Form penarikan ke rekening bank dengan validasi proteksi Rekber ketat.
 class HalamanDompetRekber extends StatefulWidget {
-  const HalamanDompetRekber({super.key});
+  final String? peranOverride;
+
+  const HalamanDompetRekber({super.key, this.peranOverride});
 
   @override
   State<HalamanDompetRekber> createState() => _HalamanDompetRekberState();
@@ -30,12 +32,17 @@ class _HalamanDompetRekberState extends State<HalamanDompetRekber> {
   @override
   void initState() {
     super.initState();
+    if (widget.peranOverride != null) {
+      _peranPenggunaAktif = widget.peranOverride!;
+    }
     _muatDataRekber();
   }
 
   Future<void> _muatDataRekber() async {
-    final profil = await LayananOtentikasi.ambilProfilAktif();
-    final peran = await LayananOtentikasi.ambilPeranAktif();
+    final peran = widget.peranOverride ?? await LayananOtentikasi.ambilPeranAktif();
+    final profil = peran == 'TRAVELER'
+        ? (await LayananOtentikasi.ambilProfilAktif())
+        : null;
     final namaTraveler = profil?.nama ?? 'Dimas Pratama';
 
     final tertahan = LayananRekber.hitungSaldoTertahanRekber(

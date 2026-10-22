@@ -10,6 +10,7 @@ import 'package:project_pam/model/model_keranjang.dart';
 import 'package:project_pam/model/model_barang_jastip.dart';
 import 'package:project_pam/model/model_pesanan_jastip.dart';
 import 'package:project_pam/model/model_pesan_chat.dart';
+import 'package:project_pam/model/model_pengguna.dart';
 import 'package:project_pam/layanan/layanan_sensor.dart';
 import 'package:project_pam/layanan/layanan_rekber.dart';
 import 'package:geolocator/geolocator.dart';
@@ -914,21 +915,22 @@ void main() {
 
   group('Uji TODO_BATASAN_REKBER: Pembatasan Visibilitas UI Rekber Berdasarkan Role', () {
     testWidgets('1. Sisi Pemesan: Menu Dompet & Saldo Rekber disembunyikan sepenuhnya dari HalamanProfil', (tester) async {
-      SharedPreferences.setMockInitialValues({
-        'id_pengguna': 1,
-        'peran_pengguna': 'PEMESAN',
-        'nama_pengguna': 'Siti Nurhaliza',
-        'email_pengguna': 'pemesan@jastipgo.com',
-      });
+      final profilPemesan = ModelPengguna(
+        id: 1,
+        nama: 'Siti Nurhaliza',
+        email: 'pemesan@jastipgo.com',
+        passwordHash: 'hash',
+        nomorTelepon: '081234567890',
+        fotoProfil: '',
+        peran: 'PEMESAN',
+        lokasi: 'Yogyakarta',
+      );
 
       await tester.pumpWidget(
-        const MaterialApp(
-          home: HalamanProfil(),
+        MaterialApp(
+          home: HalamanProfil(profilOverride: profilPemesan),
         ),
       );
-      await tester.runAsync(() async {
-        await Future.delayed(const Duration(milliseconds: 300));
-      });
       await tester.pump();
 
       // Verifikasi 1: Menu Dompet & Saldo Rekber TIDAK MUNCUL untuk Pemesan
@@ -940,21 +942,22 @@ void main() {
     });
 
     testWidgets('2. Sisi Traveler: Menu Dompet & Saldo Rekber EKSKLUSIF ditampilkan di HalamanProfil', (tester) async {
-      SharedPreferences.setMockInitialValues({
-        'id_pengguna': 2,
-        'peran_pengguna': 'TRAVELER',
-        'nama_pengguna': 'Dimas Pratama',
-        'email_pengguna': 'traveler.dimas@jastipgo.com',
-      });
+      final profilTraveler = ModelPengguna(
+        id: 2,
+        nama: 'Dimas Pratama',
+        email: 'traveler.dimas@jastipgo.com',
+        passwordHash: 'hash',
+        nomorTelepon: '081234567890',
+        fotoProfil: '',
+        peran: 'TRAVELER',
+        lokasi: 'Tokyo',
+      );
 
       await tester.pumpWidget(
-        const MaterialApp(
-          home: HalamanProfil(),
+        MaterialApp(
+          home: HalamanProfil(profilOverride: profilTraveler),
         ),
       );
-      await tester.runAsync(() async {
-        await Future.delayed(const Duration(milliseconds: 300));
-      });
       await tester.pump();
 
       // Verifikasi: Menu Dompet & Saldo Rekber MUNCUL khusus untuk Traveler
@@ -964,63 +967,39 @@ void main() {
 
     testWidgets('3. Sisi Pemesan vs Traveler di HalamanFiturCerdas', (tester) async {
       // Akun Pemesan: Tidak boleh ada menu Rekber di Pusat Fitur Cerdas
-      SharedPreferences.setMockInitialValues({
-        'id_pengguna': 1,
-        'peran_pengguna': 'PEMESAN',
-        'nama_pengguna': 'Siti Nurhaliza',
-        'email_pengguna': 'pemesan@jastipgo.com',
-      });
-
       await tester.pumpWidget(
         const MaterialApp(
-          home: HalamanFiturCerdas(),
+          home: HalamanFiturCerdas(
+            key: ValueKey('fitur_cerdas_pemesan'),
+            peranOverride: 'PEMESAN',
+          ),
         ),
       );
-      await tester.runAsync(() async {
-        await Future.delayed(const Duration(milliseconds: 300));
-      });
       await tester.pump();
 
       expect(find.text('Dompet & Saldo Rekber Escrow'), findsNothing);
       expect(find.text('Pelacakan Status Pesanan (Pemesan)'), findsOneWidget);
 
       // Akun Traveler: Fitur Dompet & Saldo Rekber tersedia
-      SharedPreferences.setMockInitialValues({
-        'id_pengguna': 2,
-        'peran_pengguna': 'TRAVELER',
-        'nama_pengguna': 'Dimas Pratama',
-        'email_pengguna': 'traveler.dimas@jastipgo.com',
-      });
-
       await tester.pumpWidget(
         const MaterialApp(
-          home: HalamanFiturCerdas(),
+          home: HalamanFiturCerdas(
+            key: ValueKey('fitur_cerdas_traveler'),
+            peranOverride: 'TRAVELER',
+          ),
         ),
       );
-      await tester.runAsync(() async {
-        await Future.delayed(const Duration(milliseconds: 300));
-      });
       await tester.pump();
 
       expect(find.text('Dompet & Saldo Rekber Escrow'), findsOneWidget);
     });
 
     testWidgets('4. Proteksi HalamanDompetRekber: Menolak akses akun Pemesan', (tester) async {
-      SharedPreferences.setMockInitialValues({
-        'id_pengguna': 1,
-        'peran_pengguna': 'PEMESAN',
-        'nama_pengguna': 'Siti Nurhaliza',
-        'email_pengguna': 'pemesan@jastipgo.com',
-      });
-
       await tester.pumpWidget(
         const MaterialApp(
-          home: HalamanDompetRekber(),
+          home: HalamanDompetRekber(peranOverride: 'PEMESAN'),
         ),
       );
-      await tester.runAsync(() async {
-        await Future.delayed(const Duration(milliseconds: 300));
-      });
       await tester.pump();
 
       // Pemesan diblokir dengan tampilan Akses Khusus Traveler
@@ -1029,21 +1008,11 @@ void main() {
     });
 
     testWidgets('5. Akses HalamanDompetRekber: Mengizinkan akun Traveler memantau dan mencairkan saldo', (tester) async {
-      SharedPreferences.setMockInitialValues({
-        'id_pengguna': 2,
-        'peran_pengguna': 'TRAVELER',
-        'nama_pengguna': 'Dimas Pratama',
-        'email_pengguna': 'traveler.dimas@jastipgo.com',
-      });
-
       await tester.pumpWidget(
         const MaterialApp(
-          home: HalamanDompetRekber(),
+          home: HalamanDompetRekber(peranOverride: 'TRAVELER'),
         ),
       );
-      await tester.runAsync(() async {
-        await Future.delayed(const Duration(milliseconds: 300));
-      });
       await tester.pump();
 
       // Traveler dapat mengakses penuh fitur Dompet & Saldo Rekber
@@ -1053,21 +1022,11 @@ void main() {
     });
 
     testWidgets('6. Sisi Pemesan di HalamanStatusPesanan: Bebas dari tombol/menu Saldo Rekber', (tester) async {
-      SharedPreferences.setMockInitialValues({
-        'id_pengguna': 1,
-        'peran_pengguna': 'PEMESAN',
-        'nama_pengguna': 'Siti Nurhaliza',
-        'email_pengguna': 'pemesan@jastipgo.com',
-      });
-
       await tester.pumpWidget(
         const MaterialApp(
           home: HalamanStatusPesanan(),
         ),
       );
-      await tester.runAsync(() async {
-        await Future.delayed(const Duration(milliseconds: 300));
-      });
       await tester.pump();
 
       expect(find.text('Pelacakan Status Pesanan'), findsOneWidget);

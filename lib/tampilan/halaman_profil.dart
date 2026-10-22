@@ -15,7 +15,9 @@ import 'halaman_chat_traveler.dart';
 
 // Halaman Profil Pengguna: Informasi Akun, Foto, Sertifikat Blockchain, dan Logout
 class HalamanProfil extends StatefulWidget {
-  const HalamanProfil({super.key});
+  final ModelPengguna? profilOverride;
+
+  const HalamanProfil({super.key, this.profilOverride});
 
   @override
   State<HalamanProfil> createState() => _HalamanProfilState();
@@ -29,7 +31,21 @@ class _HalamanProfilState extends State<HalamanProfil> {
   @override
   void initState() {
     super.initState();
-    _muatProfil();
+    if (widget.profilOverride != null) {
+      _profilPengguna = widget.profilOverride;
+    } else {
+      _muatProfil();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant HalamanProfil oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.profilOverride != null && widget.profilOverride != oldWidget.profilOverride) {
+      setState(() {
+        _profilPengguna = widget.profilOverride;
+      });
+    }
   }
 
   Future<void> _muatProfil() async {
@@ -302,7 +318,10 @@ class _HalamanProfilState extends State<HalamanProfil> {
 
   final ImagePicker _picker = ImagePicker();
 
-  ImageProvider _dapatkanGambarProfil(String urlAtauPath) {
+  ImageProvider? _dapatkanGambarProfil(String urlAtauPath) {
+    if (urlAtauPath.isEmpty || urlAtauPath == 'asset_avatar_kosong') {
+      return null;
+    }
     if (urlAtauPath.startsWith('http://') || urlAtauPath.startsWith('https://')) {
       return NetworkImage(urlAtauPath);
     }
@@ -310,7 +329,7 @@ class _HalamanProfilState extends State<HalamanProfil> {
     if (file.existsSync()) {
       return FileImage(file);
     }
-    return const NetworkImage('https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400');
+    return null;
   }
 
   Future<void> _pilihSumberFotoProfil() async {
@@ -501,6 +520,9 @@ class _HalamanProfilState extends State<HalamanProfil> {
                         radius: 50,
                         backgroundColor: Colors.teal.shade100,
                         backgroundImage: _dapatkanGambarProfil(fotoUrl),
+                        child: _dapatkanGambarProfil(fotoUrl) == null
+                            ? const Icon(Icons.person, size: 50, color: Colors.teal)
+                            : null,
                       ),
                       GestureDetector(
                         onTap: _pilihSumberFotoProfil,
@@ -718,13 +740,16 @@ class _HalamanProfilState extends State<HalamanProfil> {
             // Menu Pengaturan & Navigasi
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
                 ],
               ),
-              child: Column(
+              child: Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
                 children: [
                   ListTile(
                     leading: Container(
@@ -884,6 +909,7 @@ class _HalamanProfilState extends State<HalamanProfil> {
                     },
                   ),
                 ],
+              ),
               ),
             ),
             const SizedBox(height: 24),

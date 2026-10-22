@@ -4,6 +4,7 @@ import '../model/model_blok_transaksi.dart';
 import '../model/model_pesanan_jastip.dart';
 import '../model/model_pesan_chat.dart';
 import '../model/model_barang_jastip.dart';
+import 'layanan_sinkronisasi_online.dart';
 
 // Model data untuk Kupon / Voucher Promo Diskon Jastip dengan Isolasi Akun (User ID)
 class ModelVoucher {
@@ -160,27 +161,98 @@ class LayananBasisDataLokal {
     return pesan;
   }
 
-  // Ambil pesan percakapan khusus untuk pemesan tertentu (Poin 3: Sinkronisasi senderId & receiverId)
+  /// Ekstrak identitas pemesan dari pesan chat (baik saat pemesan mengirim atau saat traveler membalas)
+  static String ekstrakIdentitasPemesan(ModelPesanChat p) {
+    if (p.pengirim == 'PEMESAN') {
+      final u = p.userId?.trim().toLowerCase();
+      if (u != null && u.isNotEmpty && u != '2' && !u.contains('traveler')) return u;
+      final em = p.idPemesan.trim().toLowerCase();
+      if (em.isNotEmpty && em != '2' && !em.contains('traveler')) return em;
+      final s = p.senderId.trim().toLowerCase();
+      if (s.isNotEmpty && s != '2' && !s.contains('traveler')) return s;
+      return p.namaPengirim.trim().toLowerCase();
+    } else {
+      final r = p.receiverId.trim().toLowerCase();
+      if (r.isNotEmpty && r != '2' && !r.contains('traveler')) return r;
+      final em = p.idPemesan.trim().toLowerCase();
+      if (em.isNotEmpty && em != '2' && !em.contains('traveler')) return em;
+      final u = p.userId?.trim().toLowerCase();
+      if (u != null && u.isNotEmpty && u != '2' && !u.contains('traveler')) return u;
+      return p.namaPemesan.trim().toLowerCase();
+    }
+  }
+
+  /// Normalisasi identitas pemesan ke kunci kanonikal (menggunakan email / ID unik akun)
+  static String normalisasiIdentitasPemesan(
+    String rawId, {
+    List<Map<String, dynamic>>? akunList,
+    List<ModelPesananJastip>? pesananList,
+  }) {
+    final clean = rawId.trim().toLowerCase();
+    if (clean.isEmpty) return clean;
+
+    final daftarAkun = akunList ?? ambilSemuaAkunHive();
+    for (var a in daftarAkun) {
+      final em = a['email']?.toString().trim().toLowerCase() ?? '';
+      final id = a['id']?.toString().trim().toLowerCase() ?? '';
+      final nm = a['nama']?.toString().trim().toLowerCase() ?? '';
+      if (clean == em || clean == id || clean == nm) {
+        return em.isNotEmpty ? em : id;
+      }
+    }
+
+    final daftarPesanan = pesananList ?? ambilSemuaPesanan();
+    for (var pos in daftarPesanan) {
+      final em = pos.emailPemesan?.trim().toLowerCase() ?? '';
+      final id = pos.userId?.trim().toLowerCase() ?? '';
+      final nm = pos.namaPemesan?.trim().toLowerCase() ?? '';
+      if (clean == em || clean == id || clean == nm) {
+        return em.isNotEmpty ? em : id;
+      }
+    }
+
+    return clean;
+  }
+
+  // Ambil pesan percakapan khusus untuk pemesan tertentu (1-on-1 Chat Room Isolation)
   static List<ModelPesanChat> ambilPesanChatUntukPemesan(String idPemesan, {String? userId}) {
     final semua = ambilSemuaPesanChat();
-    final cleanId = idPemesan.toLowerCase().trim();
-    final cleanUser = userId?.toLowerCase().trim();
+    final daftarAkun = ambilSemuaAkunHive();
+    final daftarPesanan = ambilSemuaPesanan();
+
+    final targetCanonical = normalisasiIdentitasPemesan(idPemesan, akunList: daftarAkun, pesananList: daftarPesanan);
+    final targetUser = userId != null ? normalisasiIdentitasPemesan(userId, akunList: daftarAkun, pesananList: daftarPesanan) : null;
 
     final hasil = semua.where((p) {
+      final rawKey = ekstrakIdentitasPemesan(p);
+      final msgCanonical = normalisasiIdentitasPemesan(rawKey, akunList: daftarAkun, pesananList: daftarPesanan);
+
+      if (msgCanonical == targetCanonical) return true;
+      if (targetUser != null && msgCanonical == targetUser) return true;
+
+      final cleanId = idPemesan.toLowerCase().trim();
+      final cleanU = userId?.toLowerCase().trim();
       final s = p.senderId.toLowerCase().trim();
       final r = p.receiverId.toLowerCase().trim();
       final pId = p.idPemesan.toLowerCase().trim();
       final uId = p.userId?.toLowerCase().trim();
 
-      if (cleanUser != null && (s == cleanUser || r == cleanUser || uId == cleanUser)) return true;
-      if (s == cleanId || r == cleanId || pId == cleanId) return true;
+      // Jangan izinkan pencocokan liar ke ID Traveler ('2')
+      if (cleanId != '2' && !cleanId.contains('traveler')) {
+        if (s == cleanId || r == cleanId || pId == cleanId) return true;
+      }
+      if (cleanU != null && cleanU != '2' && !cleanU.contains('traveler')) {
+        if (s == cleanU || r == cleanU || uId == cleanU) return true;
+      }
+
       return false;
     }).toList();
+
     hasil.sort((a, b) => a.waktu.compareTo(b.waktu));
     return hasil;
   }
 
-  // Ambil seluruh pesan di mana receiverId atau senderId cocok dengan akun Traveler (Poin 3)
+  // Ambil seluruh pesan di mana receiverId atau senderId cocok dengan akun Traveler
   static List<ModelPesanChat> ambilPesanChatUntukTraveler({
     required String travelerId,
     String? emailTraveler,
@@ -205,32 +277,33 @@ class LayananBasisDataLokal {
     return hasil;
   }
 
-  // Ambil ringkasan seluruh thread pemesan untuk tampilan inbox traveler (Poin 3 & Poin 5)
+  // Ambil ringkasan seluruh thread pemesan untuk tampilan inbox traveler (Pemisahan 1-on-1 Multi-Pemesan)
   static List<ThreadChatPemesan> ambilDaftarThreadPemesan({String? travelerId, String? emailTraveler}) {
     final List<ModelPesanChat> semuaPesan = (travelerId != null || emailTraveler != null)
         ? ambilPesanChatUntukTraveler(travelerId: travelerId ?? '2', emailTraveler: emailTraveler)
         : ambilSemuaPesanChat();
 
+    final List<Map<String, dynamic>> daftarAkun = ambilSemuaAkunHive();
+    final List<ModelPesananJastip> daftarPesanan = ambilSemuaPesanan();
+
     final Map<String, List<ModelPesanChat>> grup = {};
 
     for (var p in semuaPesan) {
-      // Kelompokkan per thread pemesan
-      String keyThread = p.idPemesan;
-      if (keyThread.isEmpty || keyThread == '2' || keyThread.contains('traveler')) {
-        keyThread = p.senderId != '2' && !p.senderId.contains('traveler') ? p.senderId : p.receiverId;
+      // Kelompokkan per pemesan secara unik dan terpisah (1-on-1)
+      final rawKey = ekstrakIdentitasPemesan(p);
+      final keyThread = normalisasiIdentitasPemesan(rawKey, akunList: daftarAkun, pesananList: daftarPesanan);
+      if (keyThread.isNotEmpty) {
+        grup.putIfAbsent(keyThread, () => []).add(p);
       }
-      grup.putIfAbsent(keyThread, () => []).add(p);
     }
 
     final List<ThreadChatPemesan> threads = [];
-    final List<ModelPesananJastip> daftarPesanan = ambilSemuaPesanan();
-    final List<Map<String, dynamic>> daftarAkun = ambilSemuaAkunHive();
 
     grup.forEach((idPemesan, listPesan) {
       listPesan.sort((a, b) => a.waktu.compareTo(b.waktu));
       final terakhir = listPesan.last;
 
-      // Resolusi Akurat: Nama Asli Akun Pemesan (Poin 1 TODO_PERBAIKAN_FITUR)
+      // Resolusi Nama Asli Akun Pemesan
       String nama = '';
 
       // 1. Cari dari pesan yang dikirim oleh pemesan
@@ -244,36 +317,22 @@ class LayananBasisDataLokal {
         }
       }
 
-      // 2. Cari dari m.adalahPengguna
+      // 2. Cari dari m.namaPemesan
       if (nama.isEmpty) {
         for (var m in listPesan.reversed) {
-          if (m.adalahPengguna && m.namaPengirim.trim().isNotEmpty) {
-            final n = m.namaPengirim.trim();
-            if (!n.toLowerCase().contains('traveler') && n.toLowerCase() != 'dimas pratama') {
-              nama = n;
-              break;
-            }
+          final n = m.namaPemesan.trim();
+          if (n.isNotEmpty &&
+              n != 'Pemesan' &&
+              n != 'Pengguna' &&
+              !n.toLowerCase().contains('traveler') &&
+              n.toLowerCase() != 'dimas pratama') {
+            nama = n;
+            break;
           }
         }
       }
 
-      // 3. Cari dari daftar pesanan aktif pemesan
-      if (nama.isEmpty) {
-        final idTarget = idPemesan.toLowerCase().trim();
-        for (var pesanan in daftarPesanan) {
-          final em = pesanan.emailPemesan?.toLowerCase().trim() ?? '';
-          final uId = pesanan.userId?.toLowerCase().trim() ?? '';
-          final nm = pesanan.namaPemesan?.trim() ?? '';
-          if (em == idTarget || uId == idTarget) {
-            if (nm.isNotEmpty) {
-              nama = nm;
-              break;
-            }
-          }
-        }
-      }
-
-      // 4. Cari dari data akun pengguna yang terdaftar di Hive
+      // 3. Cari dari data akun pengguna yang terdaftar di Hive
       if (nama.isEmpty) {
         final idTarget = idPemesan.toLowerCase().trim();
         for (var akun in daftarAkun) {
@@ -289,19 +348,23 @@ class LayananBasisDataLokal {
         }
       }
 
-      // 5. Cek terakhir.namaPemesan jika bukan nama traveler
+      // 4. Cari dari daftar pesanan aktif pemesan
       if (nama.isEmpty) {
-        final n = terakhir.namaPemesan.trim();
-        if (n.isNotEmpty &&
-            n != 'Pengguna' &&
-            n != 'Pemesan' &&
-            !n.toLowerCase().contains('traveler') &&
-            n.toLowerCase() != 'dimas pratama') {
-          nama = n;
+        final idTarget = idPemesan.toLowerCase().trim();
+        for (var pesanan in daftarPesanan) {
+          final em = pesanan.emailPemesan?.toLowerCase().trim() ?? '';
+          final uId = pesanan.userId?.toLowerCase().trim() ?? '';
+          final nm = pesanan.namaPemesan?.trim() ?? '';
+          if (em == idTarget || uId == idTarget) {
+            if (nm.isNotEmpty) {
+              nama = nm;
+              break;
+            }
+          }
         }
       }
 
-      // 6. Fallback cerdas berdasarkan idPemesan
+      // 5. Fallback cerdas berdasarkan idPemesan
       if (nama.isEmpty) {
         final idTarget = idPemesan.toLowerCase().trim();
         if (idTarget.contains('siti') || idTarget == '1') {
@@ -310,6 +373,9 @@ class LayananBasisDataLokal {
           nama = 'Jessica Mila';
         } else if (idTarget.contains('budi')) {
           nama = 'Budi Santoso';
+        } else if (idTarget.contains('@')) {
+          final uname = idTarget.split('@')[0];
+          nama = uname[0].toUpperCase() + uname.substring(1);
         } else {
           nama = 'Pemesan ($idPemesan)';
         }
@@ -329,7 +395,11 @@ class LayananBasisDataLokal {
           final em = pesanan.emailPemesan?.toLowerCase().trim() ?? '';
           final uId = pesanan.userId?.toLowerCase().trim() ?? '';
           if (em == idTarget || uId == idTarget) {
-            infoTitipan = '${pesanan.idPesanan} (${pesanan.negaraAsal})';
+            if (pesanan.daftarBarang.isNotEmpty) {
+              infoTitipan = '${pesanan.daftarBarang.first.namaBarang} (${pesanan.negaraAsal})';
+            } else {
+              infoTitipan = 'Pesanan #${pesanan.idPesanan} (${pesanan.negaraAsal})';
+            }
             break;
           }
         }
@@ -349,10 +419,11 @@ class LayananBasisDataLokal {
     return threads;
   }
 
-  // Kirim pesan baru ke database Hive
+  // Kirim pesan baru ke database Hive & sinkronkan ke server online
   static Future<void> kirimPesanChat(ModelPesanChat pesanBaru) async {
     final box = Hive.box(namaKotakChat);
     await box.add(pesanBaru.keMap());
+    await LayananSinkronisasiOnline.unggahPesanChatBaru(pesanBaru);
   }
 
   // Kosongkan riwayat obrolan jika diperlukan / saat logout (Poin 6: Isolasi Sesi Chat)
@@ -438,13 +509,14 @@ class LayananBasisDataLokal {
     }).toList();
   }
 
-  // Tambah pesanan baru (misal saat checkout selesai)
+  // Tambah pesanan baru (misal saat checkout selesai) & sinkronkan online
   static Future<void> tambahPesanan(ModelPesananJastip pesananBaru) async {
     final box = Hive.box(namaKotakPesanan);
     await box.add(pesananBaru.keMap());
+    await LayananSinkronisasiOnline.unggahPesananBaru(pesananBaru);
   }
 
-  // Perbarui status dan lokasi pesanan
+  // Perbarui status dan lokasi pesanan serta sinkronkan ke server online
   static Future<void> perbaruiStatusPesanan(
     String idPesanan, {
     required int tahapStatus,
@@ -469,6 +541,13 @@ class LayananBasisDataLokal {
         break;
       }
     }
+    await LayananSinkronisasiOnline.perbaruiStatusPesananOnline(
+      idPesanan,
+      tahapStatus: tahapStatus,
+      lokasiTerkini: lokasiTerkini,
+      metodePenyerahan: metodePenyerahan,
+      alamatPengiriman: alamatPengiriman,
+    );
   }
 
   /// Mengonfirmasi pesanan telah diterima oleh Pemesan (Poin 5)

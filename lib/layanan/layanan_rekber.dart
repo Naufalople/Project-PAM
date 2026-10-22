@@ -3,6 +3,7 @@ import 'package:hive/hive.dart';
 import '../model/model_pesanan_jastip.dart';
 import '../model/model_transaksi_rekber.dart';
 import 'layanan_basisdata_lokal.dart';
+import 'layanan_sinkronisasi_online.dart';
 
 /// Layanan Rekening Bersama (Rekber / Escrow) JastipGo
 /// Menggantikan sistem blockchain lama untuk menjamin keamanan transaksi:
@@ -170,6 +171,7 @@ class LayananRekber {
 
     final box = Hive.box(namaKotakPenarikan);
     await box.add(dataPenarikan.keMap());
+    await LayananSinkronisasiOnline.unggahPenarikanDana(dataPenarikan);
 
     final sisaAktif = saldoAktif - jumlahTarik;
     return HasilPenarikanDana(
@@ -203,6 +205,7 @@ class LayananRekber {
     debugPrint(
       'REKBER LOG: Pemesan mengonfirmasi penerimaan pesanan #${pesanan.idPesanan}. Dana Rp ${_formatRupiah(pesanan.totalHargaIdr)} BERPINDAH dari Rekber Tertahan ke Saldo Aktif Traveler.',
     );
+    await LayananSinkronisasiOnline.catatPelepasanDanaRekber(pesanan: pesanan);
   }
 
   /// Helper format Rupiah

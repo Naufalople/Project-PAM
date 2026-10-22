@@ -127,6 +127,26 @@ class LayananNotifikasi {
     return List.from(_riwayatNotifikasi);
   }
 
+  // Pemicu Notifikasi Real-Time Sistem OS & Penyimpan Riwayat (Dapat dipanggil dari Background Sync tanpa BuildContext)
+  static Future<void> picuNotifikasiSistem({
+    required String judul,
+    required String pesan,
+    IconData ikon = Icons.notifications_active,
+    Color warna = Colors.blue,
+  }) async {
+    final notifBaru = ModelNotifikasi(
+      id: 'NOTIF-${DateTime.now().millisecondsSinceEpoch}',
+      judul: judul,
+      pesan: pesan,
+      waktu: DateTime.now(),
+      ikon: ikon,
+      warna: warna,
+    );
+
+    _riwayatNotifikasi.insert(0, notifBaru);
+    await tampilkanNotifikasiStatusBar(judul: judul, pesan: pesan);
+  }
+
   // Tampilkan notifikasi Heads-Up / Pop-up Banner pada aplikasi DAN pemicu status bar OS
   static void kirimNotifikasi(
     BuildContext context, {

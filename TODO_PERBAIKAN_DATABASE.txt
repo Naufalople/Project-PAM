@@ -1,0 +1,29 @@
+================================================================================
+   DAFTAR PERBAIKAN: MIGRASI OFFLINE KE ONLINE (NON-FIREBASE) & CACHE LOKAL
+================================================================================
+
+Saat ini aplikasi hanya menyimpan data secara offline sehingga komunikasi 
+lintas perangkat gagal. Tolong perbaiki arsitektur database dengan 
+syarat mutlak berikut:
+
+--------------------------------------------------------------------------------
+1. MIGRASI KE DATABASE ONLINE REAL-TIME
+--------------------------------------------------------------------------------
+- DILARANG KERAS menggunakan Firebase.
+- Bangun backend menggunakan Web Service/API (Node.js dan Socket.IO) atau gunakan 
+  BaaS alternatif seperti Supabase.
+- Pastikan pesan dan data pesanan terkirim dan diterima secara real-time 
+  lintas device.
+
+--------------------------------------------------------------------------------
+2. MANAJEMEN PENYIMPANAN LOKAL SEBAGAI CACHE (OFFLINE SUPPORT)
+--------------------------------------------------------------------------------
+- Tetap manfaatkan penyimpanan lokal (SQLite/Hive) yang sudah ada, namun ubah 
+  fungsinya HANYA sebagai cache sementara.
+- Saat menerima pesan dari Socket.IO/Supabase, simpan salinannya ke SQLite/Hive.
+- Saat aplikasi dibuka, muat riwayat obrolan dari database lokal terlebih dahulu 
+  sebelum menyinkronkan data baru dari server online.
+
+Tolong buatkan struktur kode backend sederhana dan implementasinya di sisi 
+aplikasi mobile untuk menangani sinkronisasi data online dan offline ini.
+================================================================================

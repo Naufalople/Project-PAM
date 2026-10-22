@@ -3,6 +3,7 @@ import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_otentikasi.dart';
 import '../layanan/layanan_rekber.dart';
+import '../layanan/layanan_sinkronisasi_online.dart';
 import '../model/model_pesanan_jastip.dart';
 import 'halaman_chat_traveler.dart';
 import 'halaman_kelola_pesanan_traveler.dart';
@@ -50,6 +51,14 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
   void initState() {
     super.initState();
     _muatDaftarPesanan();
+    LayananSinkronisasiOnline.sinkronkanPesananOnline();
+    LayananSinkronisasiOnline.pemicuPembaruanPesanan.addListener(_muatDaftarPesanan);
+  }
+
+  @override
+  void dispose() {
+    LayananSinkronisasiOnline.pemicuPembaruanPesanan.removeListener(_muatDaftarPesanan);
+    super.dispose();
   }
 
   Future<void> _muatDaftarPesanan() async {
@@ -216,6 +225,22 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
           backgroundColor: Colors.teal.shade800,
           foregroundColor: Colors.white,
           elevation: 0,
+          actions: [
+            IconButton(
+              tooltip: 'Sinkronkan Pesanan Online',
+              icon: const Icon(Icons.sync_rounded),
+              onPressed: () async {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Menyinkronkan data pesanan dari server online...'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+                await LayananSinkronisasiOnline.sinkronkanPesananOnline();
+                await _muatDaftarPesanan();
+              },
+            ),
+          ],
         ),
         body: Center(
           child: SingleChildScrollView(
@@ -282,6 +307,22 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
         backgroundColor: Colors.teal.shade800,
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'Sinkronkan Pesanan Online',
+            icon: const Icon(Icons.sync_rounded),
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Menyinkronkan data pesanan dari server online...'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
+              await LayananSinkronisasiOnline.sinkronkanPesananOnline();
+              await _muatDaftarPesanan();
+            },
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: Colors.teal.shade800,

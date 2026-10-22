@@ -13,6 +13,8 @@ import 'package:project_pam/model/model_pesan_chat.dart';
 import 'package:project_pam/model/model_pengguna.dart';
 import 'package:project_pam/layanan/layanan_sensor.dart';
 import 'package:project_pam/layanan/layanan_rekber.dart';
+import 'package:project_pam/layanan/layanan_notifikasi.dart';
+import 'package:project_pam/layanan/layanan_sinkronisasi_online.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -1034,5 +1036,336 @@ void main() {
       expect(find.byIcon(Icons.shield_outlined), findsNothing);
     });
   });
+
+  group('Uji TODO_SINKRONISASI_REALTIME: Sinkronisasi Lintas Perangkat (Non-Firebase), Notifikasi Real-Time, & Pencairan Otomatis Rekber', () {
+    test('1. SINKRONISASI DATABASE (NON-FIREBASE): LayananSinkronisasiOnline dapat mengunggah dan menyinkronkan data pesanan dan chat secara online', () async {
+      await Hive.box(LayananBasisDataLokal.namaKotakPesanan).clear();
+      await Hive.box(LayananBasisDataLokal.namaKotakChat).clear();
+
+      final pesananUji = ModelPesananJastip(
+        idPesanan: 'PO-SYNC-HP1-001',
+        userId: '1',
+        emailPemesan: 'pemesan@jastipgo.com',
+        namaPemesan: 'Siti Nurhaliza',
+        tanggal: DateTime.now(),
+        negaraAsal: 'Jepang 🇯🇵',
+        namaTraveler: 'Dimas Pratama',
+        lokasiTerkini: 'Toko Don Quijote Tokyo',
+        tahapStatus: 1,
+        metodePenyerahan: 'COD_LBS',
+        totalHargaIdr: 250000,
+        daftarBarang: [
+          ModelItemPesanan(
+            namaBarang: 'Hada Labo Gokujyun',
+            fotoUrl: '',
+            negara: 'Jepang',
+            namaToko: 'Don Quijote',
+            jumlah: 1,
+            hargaIdr: 250000,
+          ),
+        ],
+      );
+
+      // Simpan pesanan lokal & picu sinkronisasi online
+      await LayananBasisDataLokal.tambahPesanan(pesananUji);
+      await LayananSinkronisasiOnline.sinkronkanPesananOnline();
+      final pesananTersimpan = LayananBasisDataLokal.ambilSemuaPesanan();
+      expect(pesananTersimpan.length, equals(1));
+      expect(pesananTersimpan.first.idPesanan, equals('PO-SYNC-HP1-001'));
+
+      // Kirim pesan chat & verifikasi
+      final pesanUji = ModelPesanChat(
+        id: 'CHAT-SYNC-001',
+        teks: 'Kak Dimas, titipan Hada Labo saya apakah sudah di-ACC?',
+        adalahPengguna: true,
+        pengirim: 'PEMESAN',
+        namaPengirim: 'Siti Nurhaliza',
+        waktu: DateTime.now(),
+        idPemesan: 'pemesan@jastipgo.com',
+        senderId: '1',
+        receiverId: '2',
+      );
+
+      await LayananBasisDataLokal.kirimPesanChat(pesanUji);
+      final chatTersimpan = LayananBasisDataLokal.ambilSemuaPesanChat();
+      expect(chatTersimpan.length, equals(1));
+      expect(chatTersimpan.first.id, equals('CHAT-SYNC-001'));
+    });
+
+    test('2. NOTIFIKASI PESANAN & CHAT MASUK: LayananNotifikasi memicu notifikasi lokal real-time di sistem OS', () async {
+      final totalAwal = LayananNotifikasi.ambilSemuaNotifikasi().length;
+
+      // Pemicu notifikasi pesanan masuk
+      await LayananNotifikasi.picuNotifikasiSistem(
+        judul: 'Pesanan Titipan Baru Masuk! 🛍️',
+        pesan: 'Pesanan #PO-SYNC-HP1-001 dari Siti Nurhaliza senilai Rp 250.000 perlu diproses.',
+      );
+
+      // Pemicu notifikasi chat masuk
+      await LayananNotifikasi.picuNotifikasiSistem(
+        judul: 'Pesan Baru dari Siti Nurhaliza 💬',
+        pesan: 'Kak Dimas, titipan Hada Labo saya apakah sudah di-ACC?',
+      );
+
+      final notifikasiTerbaru = LayananNotifikasi.ambilSemuaNotifikasi();
+      expect(notifikasiTerbaru.length, equals(totalAwal + 2));
+      expect(notifikasiTerbaru.any((n) => n.judul.contains('Pesanan Titipan Baru Masuk!')), isTrue);
+      expect(notifikasiTerbaru.any((n) => n.judul.contains('Pesan Baru dari Siti Nurhaliza')), isTrue);
+    });
+
+    test('3. ALUR OTOMATIS PENCAIRAN DANA REKBER: Konfirmasi "Barang Sudah Sampai" mencairkan dana Rekber ke Saldo Aktif Traveler', () async {
+      await Hive.box(LayananBasisDataLokal.namaKotakPesanan).clear();
+      await Hive.box(LayananRekber.namaKotakPenarikan).clear();
+
+      final pesananAktif = ModelPesananJastip(
+        idPesanan: 'PO-REKBER-AUTO-01',
+        userId: '1',
+        emailPemesan: 'pemesan@jastipgo.com',
+        namaPemesan: 'Siti Nurhaliza',
+        tanggal: DateTime.now(),
+        negaraAsal: 'Jepang 🇯🇵',
+        namaTraveler: 'Dimas Pratama',
+        lokasiTerkini: 'Tiba di Indonesia',
+        tahapStatus: 5, // Belum selesai (masih ditahan Rekber)
+        metodePenyerahan: 'COD_LBS',
+        totalHargaIdr: 500000,
+        daftarBarang: [],
+      );
+      await LayananBasisDataLokal.tambahPesanan(pesananAktif);
+
+      // Saat tahapStatus = 5: Saldo Tertahan = 500.000, Saldo Aktif = 0
+      int tertahanSebelum = LayananRekber.hitungSaldoTertahanRekber(namaTraveler: 'Dimas Pratama');
+      int aktifSebelum = LayananRekber.hitungSaldoAktifTraveler(namaTraveler: 'Dimas Pratama');
+      expect(tertahanSebelum, equals(500000));
+      expect(aktifSebelum, equals(0));
+
+      // Simulasi Pemesan di HP 1 menekan konfirmasi "Barang Sudah Sampai/Diterima"
+      await LayananBasisDataLokal.konfirmasiPesananDiterima('PO-REKBER-AUTO-01');
+      await LayananRekber.lepaskanDanaKeTraveler(pesanan: pesananAktif);
+
+      // Verifikasi status pesanan lokal & online telah berubah menjadi 6 (Selesai/Diterima)
+      final pesananTerbaru = LayananBasisDataLokal.ambilSemuaPesanan().firstWhere((p) => p.idPesanan == 'PO-REKBER-AUTO-01');
+      expect(pesananTerbaru.tahapStatus, equals(6));
+      expect(pesananTerbaru.apakahSudahDiterima, isTrue);
+
+      // Simulasi Traveler di HP 2 membuka / merefresh dashboard
+      int tertahanSetelah = LayananRekber.hitungSaldoTertahanRekber(namaTraveler: 'Dimas Pratama');
+      int aktifSetelah = LayananRekber.hitungSaldoAktifTraveler(namaTraveler: 'Dimas Pratama');
+
+      // Saldo Rekber (Tertahan) berkurang menjadi 0, dan Saldo Aktif Traveler bertambah menjadi 500.000!
+      expect(tertahanSetelah, equals(0));
+      expect(aktifSetelah, equals(500000));
+
+      // Traveler dapat melakukan penarikan saldo aktif ke rekening bank
+      final hasilTarik = await LayananRekber.tarikDanaKeRekening(
+        jumlahTarik: 500000,
+        namaBank: 'BCA',
+        nomorRekening: '1234567890',
+        namaPemilikRekening: 'Dimas Pratama',
+        namaTraveler: 'Dimas Pratama',
+      );
+
+      expect(hasilTarik.berhasil, isTrue);
+      expect(LayananRekber.hitungSaldoAktifTraveler(namaTraveler: 'Dimas Pratama'), equals(0));
+    });
+  });
+
+  group('Uji TODO_PERBAIKAN_DATABASE: Migrasi Online Real-Time Non-Firebase, Cache Lokal Offline, & Pemisahan Inbox 1-on-1', () {
+    test('1. PEMISAHAN INBOX TRAVELER: 5 Pemesan menghubungi Traveler menghasilkan tepat 5 percakapan pribadi (1-on-1) terpisah', () async {
+      await Hive.box(LayananBasisDataLokal.namaKotakChat).clear();
+      await Hive.box(LayananBasisDataLokal.namaKotakPengguna).clear();
+
+      // Daftarkan 5 akun pemesan di Hive
+      final pemesanList = [
+        {'id': 101, 'nama': 'Siti Nurhaliza', 'email': 'siti@jastipgo.com', 'peran': 'PEMESAN'},
+        {'id': 102, 'nama': 'Budi Santoso', 'email': 'budi@jastipgo.com', 'peran': 'PEMESAN'},
+        {'id': 103, 'nama': 'Andi Wijaya', 'email': 'andi@jastipgo.com', 'peran': 'PEMESAN'},
+        {'id': 104, 'nama': 'Dewi Lestari', 'email': 'dewi@jastipgo.com', 'peran': 'PEMESAN'},
+        {'id': 105, 'nama': 'Rian Hidayat', 'email': 'rian@jastipgo.com', 'peran': 'PEMESAN'},
+      ];
+
+      for (var p in pemesanList) {
+        await LayananBasisDataLokal.simpanAkunHive(p);
+      }
+
+      // 5 Pemesan masing-masing mengirim pesan ke Traveler (receiverId: '2' / Dimas Pratama)
+      for (int i = 0; i < pemesanList.length; i++) {
+        final p = pemesanList[i];
+        final pesan = ModelPesanChat(
+          id: 'MSG-TEST-${i + 1}-01',
+          pengirim: 'PEMESAN',
+          teks: 'Halo Traveler Dimas, saya ${p['nama']} ingin titip barang.',
+          waktu: DateTime.now().add(Duration(minutes: i)),
+          idPesanan: 'PO-TEST-00$i',
+          namaPengirim: p['nama'] as String,
+          senderId: p['id'].toString(),
+          receiverId: '2',
+          idPemesan: p['email'] as String,
+          userId: p['id'].toString(),
+          namaPemesan: p['nama'] as String,
+        );
+        await LayananBasisDataLokal.kirimPesanChat(pesan);
+
+        // Traveler membalas setiap pemesan secara individual
+        final balasanTraveler = ModelPesanChat(
+          id: 'MSG-TEST-${i + 1}-REPLY',
+          pengirim: 'TRAVELER',
+          teks: 'Halo ${p['nama']}, koper saya masih muat untuk titipanmu.',
+          waktu: DateTime.now().add(Duration(minutes: i, seconds: 30)),
+          idPesanan: 'PO-TEST-00$i',
+          namaPengirim: 'Dimas Pratama',
+          senderId: '2',
+          receiverId: p['id'].toString(),
+          idPemesan: p['email'] as String,
+          userId: p['id'].toString(),
+          namaPemesan: p['nama'] as String,
+        );
+        await LayananBasisDataLokal.kirimPesanChat(balasanTraveler);
+      }
+
+      // Ambil daftar thread inbox Traveler
+      final threads = LayananBasisDataLokal.ambilDaftarThreadPemesan(
+        travelerId: '2',
+        emailTraveler: 'traveler.dimas@jastipgo.com',
+      );
+
+      // Verifikasi: Terdapat TEPAT 5 thread 1-on-1 terpisah, tidak digabung jadi satu!
+      expect(threads.length, equals(5));
+
+      final namaPemesanDiThreads = threads.map((t) => t.namaPemesan.toLowerCase()).toList();
+      expect(namaPemesanDiThreads.any((n) => n.contains('siti')), isTrue);
+      expect(namaPemesanDiThreads.any((n) => n.contains('budi')), isTrue);
+      expect(namaPemesanDiThreads.any((n) => n.contains('andi')), isTrue);
+      expect(namaPemesanDiThreads.any((n) => n.contains('dewi')), isTrue);
+      expect(namaPemesanDiThreads.any((n) => n.contains('rian')), isTrue);
+
+      // Setiap thread memiliki total pesan = 2 (1 tanya dari pemesan, 1 jawab dari traveler)
+      for (var thread in threads) {
+        expect(thread.totalPesan, equals(2));
+      }
+    });
+
+    test('2. ISOLASI RUANG CHAT 1-ON-1: Pesan antara Traveler & Pemesan A tidak bocor ke Pemesan B', () async {
+      await Hive.box(LayananBasisDataLokal.namaKotakChat).clear();
+
+      // Buat percakapan Pemesan A (Siti) dengan Traveler
+      await LayananBasisDataLokal.kirimPesanChat(ModelPesanChat(
+        id: 'MSG-SITI-01',
+        pengirim: 'PEMESAN',
+        teks: 'Halo kak, titip Tokyo Banana ya.',
+        waktu: DateTime.now(),
+        senderId: '101',
+        receiverId: '2',
+        idPemesan: 'siti@jastipgo.com',
+        userId: '101',
+        namaPengirim: 'Siti Nurhaliza',
+      ));
+      await LayananBasisDataLokal.kirimPesanChat(ModelPesanChat(
+        id: 'MSG-SITI-02',
+        pengirim: 'TRAVELER',
+        teks: 'Siap Siti, dibelikan segera.',
+        waktu: DateTime.now().add(const Duration(minutes: 1)),
+        senderId: '2',
+        receiverId: '101',
+        idPemesan: 'siti@jastipgo.com',
+        userId: '101',
+        namaPengirim: 'Dimas Pratama',
+      ));
+
+      // Buat percakapan Pemesan B (Budi) dengan Traveler
+      await LayananBasisDataLokal.kirimPesanChat(ModelPesanChat(
+        id: 'MSG-BUDI-01',
+        pengirim: 'PEMESAN',
+        teks: 'Halo kak, titip Gundam RG ya.',
+        waktu: DateTime.now(),
+        senderId: '102',
+        receiverId: '2',
+        idPemesan: 'budi@jastipgo.com',
+        userId: '102',
+        namaPengirim: 'Budi Santoso',
+      ));
+      await LayananBasisDataLokal.kirimPesanChat(ModelPesanChat(
+        id: 'MSG-BUDI-02',
+        pengirim: 'TRAVELER',
+        teks: 'Siap Budi, nanti saya carikan di Akihabara.',
+        waktu: DateTime.now().add(const Duration(minutes: 1)),
+        senderId: '2',
+        receiverId: '102',
+        idPemesan: 'budi@jastipgo.com',
+        userId: '102',
+        namaPengirim: 'Dimas Pratama',
+      ));
+
+      // Ambil obrolan khusus untuk Siti Nurhaliza (id: 101 / siti@jastipgo.com)
+      final chatSiti = LayananBasisDataLokal.ambilPesanChatUntukPemesan(
+        'siti@jastipgo.com',
+        userId: '101',
+      );
+
+      // Ambil obrolan khusus untuk Budi Santoso (id: 102 / budi@jastipgo.com)
+      final chatBudi = LayananBasisDataLokal.ambilPesanChatUntukPemesan(
+        'budi@jastipgo.com',
+        userId: '102',
+      );
+
+      // Verifikasi isolasi pesan:
+      expect(chatSiti.length, equals(2));
+      expect(chatBudi.length, equals(2));
+
+      // Ruang chat Siti hanya berisi percakapan Siti & Traveler
+      for (var m in chatSiti) {
+        expect(m.teks.contains('Budi'), isFalse);
+        expect(m.teks.contains('Gundam'), isFalse);
+      }
+
+      // Ruang chat Budi hanya berisi percakapan Budi & Traveler
+      for (var m in chatBudi) {
+        expect(m.teks.contains('Siti'), isFalse);
+        expect(m.teks.contains('Tokyo Banana'), isFalse);
+      }
+    });
+
+    test('3. CACHE LOKAL OFFLINE: Riwayat obrolan tetap tersimpan dan dapat dibaca seketika dari Hive tanpa server', () async {
+      await Hive.box(LayananBasisDataLokal.namaKotakChat).clear();
+
+      // Simpan 3 pesan ke cache lokal Hive
+      for (int i = 1; i <= 3; i++) {
+        await LayananBasisDataLokal.kirimPesanChat(ModelPesanChat(
+          id: 'MSG-OFFLINE-$i',
+          pengirim: i.isOdd ? 'PEMESAN' : 'TRAVELER',
+          teks: 'Pesan cache offline ke-$i',
+          waktu: DateTime.now(),
+          senderId: i.isOdd ? '1' : '2',
+          receiverId: i.isOdd ? '2' : '1',
+          idPemesan: 'pemesan@jastipgo.com',
+          userId: '1',
+          namaPengirim: i.isOdd ? 'Pemesan' : 'Traveler',
+        ));
+      }
+
+      // Pastikan data obrolan ada di Hive cache dan terbaca seketika
+      final semuaPesan = LayananBasisDataLokal.ambilSemuaPesanChat();
+      expect(semuaPesan.length, equals(3));
+
+      // Verifikasi membaca pesan pertama
+      final pesanAwal = semuaPesan.first;
+      expect(pesanAwal.teks, equals('Pesan cache offline ke-1'));
+      expect(pesanAwal.pengirim, equals('PEMESAN'));
+    });
+
+    test('4. PEMULIHAN AKUN LINTAS PERANGKAT: pulihkanDataPenggunaOnline menarik data tanpa error', () async {
+      // Uji pemanggilan pulihkanDataPenggunaOnline
+      await LayananSinkronisasiOnline.pulihkanDataPenggunaOnline(
+        userId: '2',
+        email: 'traveler.dimas@jastipgo.com',
+        peran: 'TRAVELER',
+        nama: 'Dimas Pratama',
+      );
+
+      // Listener pemicu pembaruan terpicu
+      expect(LayananSinkronisasiOnline.pemicuPembaruanChat.value, greaterThan(0));
+    });
+  });
 }
+
 

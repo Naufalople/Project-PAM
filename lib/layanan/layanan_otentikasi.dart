@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../model/model_pengguna.dart';
 import 'layanan_basisdata_lokal.dart';
+import 'layanan_sinkronisasi_online.dart';
 
 // Hasil proses registrasi akun baru
 class HasilRegistrasi {
@@ -466,6 +467,13 @@ class LayananOtentikasi {
       await _simpanSesi(onlineAkun);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kunciEmailTerakhir, onlineAkun.email);
+      // Pulihkan riwayat online ke cache lokal
+      await LayananSinkronisasiOnline.pulihkanDataPenggunaOnline(
+        userId: onlineAkun.id.toString(),
+        email: onlineAkun.email,
+        peran: onlineAkun.peran,
+        nama: onlineAkun.nama,
+      );
       return onlineAkun;
     }
 
@@ -477,6 +485,13 @@ class LayananOtentikasi {
         await _simpanSesi(akun);
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_kunciEmailTerakhir, akun.email);
+        // Pulihkan riwayat online ke cache lokal
+        await LayananSinkronisasiOnline.pulihkanDataPenggunaOnline(
+          userId: akun.id.toString(),
+          email: akun.email,
+          peran: akun.peran,
+          nama: akun.nama,
+        );
         return akun;
       }
     }
@@ -562,6 +577,12 @@ class LayananOtentikasi {
     }
 
     await _simpanSesi(targetAkun);
+    await LayananSinkronisasiOnline.pulihkanDataPenggunaOnline(
+      userId: targetAkun.id.toString(),
+      email: targetAkun.email,
+      peran: targetAkun.peran,
+      nama: targetAkun.nama,
+    );
     return targetAkun;
   }
 
@@ -573,6 +594,12 @@ class LayananOtentikasi {
         await _simpanSesi(akun);
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_kunciEmailTerakhir, akun.email);
+        await LayananSinkronisasiOnline.pulihkanDataPenggunaOnline(
+          userId: akun.id.toString(),
+          email: akun.email,
+          peran: akun.peran,
+          nama: akun.nama,
+        );
         return akun;
       }
     }

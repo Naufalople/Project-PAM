@@ -3,6 +3,7 @@ import 'layanan/layanan_basisdata_lokal.dart';
 import 'layanan/layanan_rekber.dart';
 import 'layanan/layanan_otentikasi.dart';
 import 'layanan/layanan_notifikasi.dart';
+import 'layanan/layanan_sinkronisasi_online.dart';
 import 'tampilan/halaman_masuk.dart';
 import 'tampilan/halaman_utama.dart';
 
@@ -17,6 +18,9 @@ void main() async {
 
   // Inisialisasi Layanan Notifikasi Status Bar Sistem OS
   await LayananNotifikasi.inisialisasiNotifikasiSistem();
+
+  // Inisialisasi Sinkronisasi Real-Time Online Lintas Perangkat (Strictly Non-Firebase)
+  await LayananSinkronisasiOnline.inisialisasi();
 
   // Reset sesi aktif saat aplikasi dibuka dari keadaan mati (Cold Start)
   // Menjamin jika apk ditutup/dibersihkan dari recent apps, pengguna diwajibkan login ulang

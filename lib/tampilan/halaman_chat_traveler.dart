@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_otentikasi.dart';
+import '../layanan/layanan_sinkronisasi_online.dart';
 import '../model/model_barang_jastip.dart';
 import '../model/model_pesan_chat.dart';
 
@@ -31,6 +33,7 @@ class HalamanChatTraveler extends StatefulWidget {
 class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
   final TextEditingController _pesanController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  Timer? _timerChatRealtime;
 
   String _peranAktif = 'PEMESAN'; // 'PEMESAN' atau 'TRAVELER'
   String _namaPengirimAktif = 'Pemesan';
@@ -64,6 +67,20 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
   void initState() {
     super.initState();
     _muatProfilPengguna();
+    LayananSinkronisasiOnline.sinkronkanChatOnline();
+    LayananSinkronisasiOnline.pemicuPembaruanChat.addListener(_padaPembaruanChat);
+    _timerChatRealtime = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (mounted) {
+        LayananSinkronisasiOnline.sinkronkanChatOnline();
+      }
+    });
+  }
+
+  void _padaPembaruanChat() {
+    if (mounted) {
+      setState(() {});
+      _gulirKeBawah();
+    }
   }
 
   Future<void> _muatProfilPengguna() async {
@@ -125,6 +142,8 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
 
   @override
   void dispose() {
+    _timerChatRealtime?.cancel();
+    LayananSinkronisasiOnline.pemicuPembaruanChat.removeListener(_padaPembaruanChat);
     _pesanController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -263,6 +282,20 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          IconButton(
+            tooltip: 'Sinkronkan Chat Online',
+            icon: const Icon(Icons.sync_rounded),
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Menyinkronkan obrolan dari server online...'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
+              await LayananSinkronisasiOnline.sinkronkanChatOnline();
+              if (mounted) setState(() {});
+            },
+          ),
           IconButton(
             tooltip: 'Ganti Peran Pengirim (Uji Coba/Demo)',
             icon: const Icon(Icons.swap_horiz_rounded),
@@ -550,6 +583,20 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          IconButton(
+            tooltip: 'Sinkronkan Chat Online',
+            icon: const Icon(Icons.sync_rounded),
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Menyinkronkan obrolan dari server online...'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
+              await LayananSinkronisasiOnline.sinkronkanChatOnline();
+              if (mounted) setState(() {});
+            },
+          ),
           IconButton(
             tooltip: 'Ganti Peran Pengirim (Uji Coba/Demo)',
             icon: const Icon(Icons.swap_horiz_rounded),
@@ -859,6 +906,20 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          IconButton(
+            tooltip: 'Sinkronkan Chat Online',
+            icon: const Icon(Icons.sync_rounded),
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Menyinkronkan obrolan dari server online...'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
+              await LayananSinkronisasiOnline.sinkronkanChatOnline();
+              if (mounted) setState(() {});
+            },
+          ),
           IconButton(
             tooltip: 'Ganti Peran Pengirim (Uji Coba/Demo)',
             icon: const Icon(Icons.swap_horiz_rounded),

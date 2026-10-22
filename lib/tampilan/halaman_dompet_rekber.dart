@@ -3,6 +3,7 @@ import '../layanan/layanan_rekber.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_otentikasi.dart';
 import '../layanan/layanan_notifikasi.dart';
+import '../layanan/layanan_sinkronisasi_online.dart';
 import '../model/model_pesanan_jastip.dart';
 import '../model/model_transaksi_rekber.dart';
 
@@ -36,9 +37,25 @@ class _HalamanDompetRekberState extends State<HalamanDompetRekber> {
       _peranPenggunaAktif = widget.peranOverride!;
     }
     _muatDataRekber();
+    LayananSinkronisasiOnline.sinkronkanPesananOnline();
+    LayananSinkronisasiOnline.sinkronkanRekberOnline();
+    LayananSinkronisasiOnline.pemicuPembaruanRekber.addListener(_muatDataRekber);
+    LayananSinkronisasiOnline.pemicuPembaruanPesanan.addListener(_muatDataRekber);
   }
 
-  Future<void> _muatDataRekber() async {
+  @override
+  void dispose() {
+    LayananSinkronisasiOnline.pemicuPembaruanRekber.removeListener(_muatDataRekber);
+    LayananSinkronisasiOnline.pemicuPembaruanPesanan.removeListener(_muatDataRekber);
+    super.dispose();
+  }
+
+  Future<void> _muatDataRekber({bool sinkronkanOnline = false}) async {
+    if (sinkronkanOnline) {
+      await LayananSinkronisasiOnline.sinkronkanPesananOnline();
+      await LayananSinkronisasiOnline.sinkronkanRekberOnline();
+    }
+
     final peran = widget.peranOverride ?? await LayananOtentikasi.ambilPeranAktif();
     final profil = peran == 'TRAVELER'
         ? (await LayananOtentikasi.ambilProfilAktif())
@@ -423,16 +440,16 @@ class _HalamanDompetRekberState extends State<HalamanDompetRekber> {
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: 'Segarkan Saldo',
-            icon: const Icon(Icons.refresh),
-            onPressed: _muatDataRekber,
+            tooltip: 'Segarkan Saldo dari Server Online',
+            icon: const Icon(Icons.sync_rounded),
+            onPressed: () => _muatDataRekber(sinkronkanOnline: true),
           ),
         ],
       ),
       body: _sedangMemuat
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _muatDataRekber,
+              onRefresh: () => _muatDataRekber(sinkronkanOnline: true),
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                 padding: const EdgeInsets.all(16.0),

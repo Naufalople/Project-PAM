@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_otentikasi.dart';
 import '../layanan/layanan_rekber.dart';
+import '../layanan/layanan_sinkronisasi_online.dart';
 import '../model/model_pesanan_jastip.dart';
 import 'halaman_chat_traveler.dart';
 import 'halaman_dompet_rekber.dart';
@@ -33,11 +35,26 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
   bool _sedangMemuat = true;
   String _peranAktif = 'TRAVELER';
   String _kategoriTab = 'BELUM_DITERIMA'; // 'BELUM_DITERIMA' atau 'SUDAH_DITERIMA'
+  Timer? _timerPesananRealtime;
 
   @override
   void initState() {
     super.initState();
     _muatDaftarPesanan();
+    LayananSinkronisasiOnline.sinkronkanPesananOnline();
+    LayananSinkronisasiOnline.pemicuPembaruanPesanan.addListener(_muatDaftarPesanan);
+    _timerPesananRealtime = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (mounted) {
+        LayananSinkronisasiOnline.sinkronkanPesananOnline();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timerPesananRealtime?.cancel();
+    LayananSinkronisasiOnline.pemicuPembaruanPesanan.removeListener(_muatDaftarPesanan);
+    super.dispose();
   }
 
   Future<void> _muatDaftarPesanan() async {
@@ -483,6 +500,22 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
           backgroundColor: Colors.indigo.shade800,
           foregroundColor: Colors.white,
           elevation: 0,
+          actions: [
+            IconButton(
+              tooltip: 'Sinkronkan Pesanan Online',
+              icon: const Icon(Icons.sync_rounded),
+              onPressed: () async {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Menyinkronkan data pesanan dari server online...'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+                await LayananSinkronisasiOnline.sinkronkanPesananOnline();
+                await _muatDaftarPesanan();
+              },
+            ),
+          ],
         ),
         body: Center(
           child: SingleChildScrollView(
@@ -555,6 +588,20 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          IconButton(
+            tooltip: 'Sinkronkan Pesanan Online',
+            icon: const Icon(Icons.sync_rounded),
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Menyinkronkan data pesanan dari server online...'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
+              await LayananSinkronisasiOnline.sinkronkanPesananOnline();
+              await _muatDaftarPesanan();
+            },
+          ),
           IconButton(
             tooltip: 'Dompet & Saldo Rekber Escrow',
             icon: const Icon(Icons.account_balance_wallet_rounded),

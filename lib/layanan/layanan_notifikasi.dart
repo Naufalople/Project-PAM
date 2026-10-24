@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 // Model Notifikasi Mobile
 class ModelNotifikasi {
@@ -31,6 +33,10 @@ class LayananNotifikasi {
     if (_terinisialisasi) return;
 
     try {
+      try {
+        tz.initializeTimeZones();
+      } catch (_) {}
+
       const AndroidInitializationSettings inisialisasiAndroid =
           AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -51,18 +57,105 @@ class LayananNotifikasi {
         settings: pengaturanInisialisasi,
       );
 
-      // Minta izin Android 13+ (POST_NOTIFICATIONS)
+      // Minta izin Android 13+ (POST_NOTIFICATIONS & SCHEDULE_EXACT_ALARM)
       final androidImplementation = _localNotifications
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
       if (androidImplementation != null) {
         await androidImplementation.requestNotificationsPermission();
+        try {
+          await androidImplementation.requestExactAlarmsPermission();
+        } catch (_) {}
       }
 
       _terinisialisasi = true;
     } catch (_) {
       // Menghindari crash pada test runner lingkungan non-perangkat
     }
+  }
+
+  // Jadwalkan notifikasi di Notification Tray / Status Bar Sistem OS
+  // Menggunakan AlarmManager native agar tetap berbunyi saat aplikasi di latar belakang atau ditutup
+  static Future<void> jadwalkanNotifikasiStatusBar({
+    required String judul,
+    required String pesan,
+    required Duration jeda,
+    int? id,
+    IconData ikon = Icons.check_circle_rounded,
+    Color warna = Colors.teal,
+  }) async {
+    final int notifId = id ?? (DateTime.now().millisecondsSinceEpoch % 100000);
+
+    // Catat ke daftar riwayat notifikasi aplikasi
+    final notifBaru = ModelNotifikasi(
+      id: 'NOTIF-$notifId',
+      judul: judul,
+      pesan: pesan,
+      waktu: DateTime.now().add(jeda),
+      ikon: ikon,
+      warna: warna,
+    );
+    _riwayatNotifikasi.insert(0, notifBaru);
+
+    try {
+      if (!_terinisialisasi) {
+        await inisialisasiNotifikasiSistem();
+      }
+
+      const AndroidNotificationDetails rincianAndroid =
+          AndroidNotificationDetails(
+        'jastipgo_channel_id',
+        'Notifikasi JastipGo',
+        channelDescription:
+            'Saluran resmi notifikasi status pesanan, kupon promo, dan keamanan sesi JastipGo',
+        importance: Importance.max,
+        priority: Priority.high,
+        showWhen: true,
+        icon: '@mipmap/ic_launcher',
+      );
+
+      const DarwinNotificationDetails rincianIos = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      const NotificationDetails rincianNotifikasi = NotificationDetails(
+        android: rincianAndroid,
+        iOS: rincianIos,
+      );
+
+      final waktuJadwal = tz.TZDateTime.now(tz.local).add(jeda);
+
+      await _localNotifications.zonedSchedule(
+        id: notifId,
+        title: judul,
+        body: pesan,
+        scheduledDate: waktuJadwal,
+        notificationDetails: rincianNotifikasi,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      );
+    } catch (_) {
+      // Fallback timer jika native alarm tidak aktif/lingkungan test/desktop
+      Future.delayed(jeda, () {
+        tampilkanNotifikasiStatusBar(judul: judul, pesan: pesan, id: notifId);
+      });
+    }
+  }
+
+  // Jadwalkan Notifikasi Pembayaran Berhasil (Masuk 10 detik setelah pembayaran, tetap muncul meski aplikasi di latar belakang/keluar)
+  static Future<void> jadwalkanNotifikasiPembayaran({
+    required String judul,
+    required String pesan,
+    Duration jeda = const Duration(seconds: 10),
+  }) async {
+    await jadwalkanNotifikasiStatusBar(
+      judul: judul,
+      pesan: pesan,
+      jeda: jeda,
+      ikon: Icons.check_circle_rounded,
+      warna: Colors.teal.shade800,
+    );
   }
 
   // Tampilkan notifikasi di Notification Tray / Status Bar Sistem

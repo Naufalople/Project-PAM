@@ -160,43 +160,56 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
                   // Lencana Negara & Kategori
                   Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.teal.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          '${widget.barang.benderaNegara} ${widget.barang.negara}',
-                          style: TextStyle(
-                            color: Colors.teal.shade800,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
+                      Expanded(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.teal.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${widget.barang.benderaNegara} ${widget.barang.negara}',
+                                style: TextStyle(
+                                  color: Colors.teal.shade800,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                widget.barang.kategori,
+                                style: TextStyle(
+                                  color: Colors.blue.shade700,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          widget.barang.kategori,
-                          style: TextStyle(
-                            color: Colors.blue.shade700,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.people_outline, size: 18, color: Colors.black45),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${widget.barang.jumlahPeminat} Peminat',
+                            style: const TextStyle(fontSize: 12, color: Colors.black54),
                           ),
-                        ),
-                      ),
-                      const Spacer(),
-                      const Icon(Icons.people_outline, size: 18, color: Colors.black45),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${widget.barang.jumlahPeminat} Peminat',
-                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                        ],
                       ),
                     ],
                   ),
@@ -344,39 +357,46 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
                   if (_peranAktif != 'TRAVELER') ...[
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.auto_awesome, color: Colors.amber.shade800, size: 20),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'Rekomendasi Cerdas untuk Anda',
+                      children: [
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Icon(Icons.auto_awesome, color: Colors.amber.shade800, size: 20),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  'Rekomendasi Cerdas untuk Anda',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.teal.shade200),
+                          ),
+                          child: Text(
+                            'AI Similarity',
                             style: TextStyle(
-                              fontSize: 15,
+                              fontSize: 10,
                               fontWeight: FontWeight.bold,
-                              color: Colors.black87,
+                              color: Colors.teal.shade800,
                             ),
                           ),
-                        ],
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.teal.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.teal.shade200),
                         ),
-                        child: Text(
-                          'AI Similarity',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.teal.shade800,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
                   const SizedBox(height: 6),
                   const Text(
                     'Dihitung dengan algoritma kemiripan atribut negara, kategori, & preferensi titipan:',
@@ -406,7 +426,7 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
                               ),
                             )
                           : SizedBox(
-                              height: 220,
+                              height: 240,
                               child: ListView.separated(
                                 scrollDirection: Axis.horizontal,
                                 itemCount: _daftarRekomendasi.length,

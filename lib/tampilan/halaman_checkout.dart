@@ -347,13 +347,12 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
 
     if (!mounted) return;
 
-    // 7. Picu Notifikasi Mobile
-    LayananNotifikasi.kirimNotifikasi(
-      context,
+    // 7. Jadwalkan Notifikasi Pembayaran Masuk 10 Detik Setelah Checkout
+    // Notifikasi status bar sistem akan tetap masuk dan berbunyi meski pengguna membuka background / keluar dari aplikasi
+    LayananNotifikasi.jadwalkanNotifikasiPembayaran(
       judul: 'Pembayaran Berhasil! 🛍️',
       pesan: 'Pembayaran sebesar Rp ${LayananKonversi.formatRupiah(_totalBayar)} untuk pesanan #$idPesanan telah berhasil diproses.',
-      ikon: Icons.check_circle_rounded,
-      warna: Colors.teal.shade800,
+      jeda: const Duration(seconds: 10),
     );
 
     setState(() => _sedangMemproses = false);

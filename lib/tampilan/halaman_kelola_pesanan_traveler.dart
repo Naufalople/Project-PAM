@@ -1325,7 +1325,7 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
               const SizedBox(height: 8),
 
               SizedBox(
-                height: 94,
+                height: 102,
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
@@ -1550,10 +1550,15 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Barang yang Harus Anda Beli (${pesanan.daftarBarang.length} Produk):',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      Expanded(
+                        child: Text(
+                          'Barang yang Harus Anda Beli (${pesanan.daftarBarang.length} Produk):',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
@@ -1623,6 +1628,8 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                                 Text(
                                   'Toko: ${item.namaToko} (${item.negara})',
                                   style: TextStyle(fontSize: 11, color: Colors.indigo.shade800),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 2),
                                 Row(
@@ -1690,7 +1697,10 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                         ),
                         onPressed: _travelerAccPesanan,
                         icon: const Icon(Icons.check_circle_outline, size: 18),
-                        label: const Text('ACC / SETUJUI PESANAN INI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('ACC / SETUJUI PESANAN INI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
                       ),
                     )
                   : null,
@@ -1717,7 +1727,10 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                         ),
                         onPressed: _travelerKonfirmasiSudahBeli,
                         icon: const Icon(Icons.shopping_bag, size: 18),
-                        label: const Text('KONFIRMASI SUDAH DIBELI DI TOKO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('KONFIRMASI SUDAH DIBELI DI TOKO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
                       ),
                     )
                   : null,
@@ -1744,7 +1757,10 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                         ),
                         onPressed: _travelerMulaiPenerbangan,
                         icon: const Icon(Icons.flight_takeoff, size: 18),
-                        label: const Text('BAWA MASUK BAGASI PESAWAT KE RI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('BAWA MASUK BAGASI PESAWAT KE RI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
                       ),
                     )
                   : null,
@@ -1771,7 +1787,10 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                         ),
                         onPressed: _travelerTibaDiIndonesia,
                         icon: const Icon(Icons.flight_land, size: 18),
-                        label: const Text('KONFIRMASI MENDARAT DI INDONESIA', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('KONFIRMASI MENDARAT DI INDONESIA', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
                       ),
                     )
                   : null,
@@ -1861,9 +1880,12 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                               ),
                               onPressed: _travelerKonfirmasiSelesai,
                               icon: const Icon(Icons.check_circle_rounded, size: 18),
-                              label: const Text(
-                                'SERAH TERIMA SELESAI & CAIRKAN REKBER',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                              label: const FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  'SERAH TERIMA SELESAI & CAIRKAN REKBER',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                                ),
                               ),
                             ),
                           ),
@@ -1900,9 +1922,12 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                   ),
                   onPressed: _travelerBatalkanPesananBarangKosong,
                   icon: const Icon(Icons.cancel_outlined, size: 18),
-                  label: const Text(
-                    'Batalkan Pesanan (Barang Tidak Ada)',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  label: const FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'Batalkan Pesanan (Barang Tidak Ada)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
                   ),
                 ),
               ),

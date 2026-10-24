@@ -59,6 +59,7 @@ class KartuBarang extends StatelessWidget {
                   top: 8,
                   left: 8,
                   child: Container(
+                    constraints: const BoxConstraints(maxWidth: 95),
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.7),
@@ -66,6 +67,8 @@ class KartuBarang extends StatelessWidget {
                     ),
                     child: Text(
                       '${barang.benderaNegara} ${barang.negara}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 10.5,

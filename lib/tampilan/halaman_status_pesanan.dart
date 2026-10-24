@@ -674,7 +674,7 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
               const SizedBox(height: 8),
 
               SizedBox(
-                height: 94,
+                height: 102,
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
@@ -969,10 +969,15 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Rincian Barang (${pesanan.daftarBarang.length} Produk):',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                      Expanded(
+                        child: Text(
+                          'Rincian Barang (${pesanan.daftarBarang.length} Produk):',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(

@@ -7,7 +7,6 @@ import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_ai.dart';
 import '../layanan/layanan_api.dart';
 import 'halaman_checkout.dart';
-import 'halaman_chat_traveler.dart';
 import '../layanan/layanan_otentikasi.dart';
 
 // Halaman Detail Barang Jastip & Rekomendasi Cerdas AI
@@ -338,43 +337,6 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
                     style: const TextStyle(fontSize: 14, color: Colors.black54, height: 1.5),
                   ),
                   const SizedBox(height: 20),
-
-                  // Pilihan Komunikasi Antara Pembeli & Traveler (Hanya untuk Pemesan - Poin 1)
-                  if (_peranAktif != 'TRAVELER') ...[
-                    const Text(
-                      'Komunikasi dengan Traveler:',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Live Chat di Dalam Aplikasi (In-App Messaging)
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.teal.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: 1,
-                        ),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => HalamanChatTraveler(barang: widget.barang),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.forum_outlined, size: 20),
-                        label: const Text(
-                          'Chat Langsung di Aplikasi (Live Chat)',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                  ],
 
                   // ==========================================
                   // REKOMENDASI CERDAS UNTUK ANDA (FITUR AI - HANYA UNTUK PEMESAN - POIN 3)

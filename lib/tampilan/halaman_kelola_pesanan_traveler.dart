@@ -8,7 +8,6 @@ import '../layanan/layanan_otentikasi.dart';
 import '../layanan/layanan_rekber.dart';
 import '../layanan/layanan_sinkronisasi_online.dart';
 import '../model/model_pesanan_jastip.dart';
-import 'halaman_chat_traveler.dart';
 import 'halaman_dompet_rekber.dart';
 import 'halaman_peta_lokasi.dart';
 
@@ -739,23 +738,6 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
                 ),
-                const SizedBox(height: 24),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.indigo.shade700,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const HalamanChatTraveler()),
-                    );
-                  },
-                  icon: const Icon(Icons.forum_rounded, size: 18),
-                  label: const Text('Buka Ruang Chat Diskusi Pemesan'),
-                ),
               ],
             ),
           ),
@@ -812,20 +794,6 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
             },
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: Colors.indigo.shade700,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.chat_bubble_rounded),
-        label: const Text('Chat Pemesan (Manusia Asli)'),
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const HalamanChatTraveler(),
-            ),
-          );
-        },
       ),
       body: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),

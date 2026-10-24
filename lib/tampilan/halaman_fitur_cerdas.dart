@@ -8,7 +8,6 @@ import 'halaman_kalkulator_kurs.dart';
 import 'halaman_mini_game.dart';
 import 'halaman_peta_lokasi.dart';
 import 'halaman_dompet_rekber.dart';
-import 'halaman_chat_traveler.dart';
 import 'halaman_status_pesanan.dart';
 import 'halaman_kelola_pesanan_traveler.dart';
 import 'halaman_pencarian_suara.dart';
@@ -90,15 +89,6 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
           'tag': 'Sisi Traveler',
         },
         {
-          'judul': 'Chat Inbox Pemesan',
-          'subjudul': 'Inbox percakapan masuk dari berbagai pemesan titipan',
-          'ikon': Icons.forum_rounded,
-          'warna': Colors.teal.shade600,
-          'halaman': const HalamanChatTraveler(),
-          'tag': 'Multi-Chat',
-        },
-
-        {
           'judul': 'Chatbot Regulasi Bea Cukai',
           'subjudul': 'Konsultasi batasan koper USD 500 & aturan IMEI bandara',
           'ikon': Icons.smart_toy_rounded,
@@ -151,14 +141,6 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
           'warna': Colors.deepOrange.shade700,
           'halaman': const HalamanStatusPesanan(),
           'tag': 'Sisi Pemesan',
-        },
-        {
-          'judul': 'Chat Langsung dengan Traveler',
-          'subjudul': 'Hubungi Traveler untuk konsultasi & negosiasi titipan aktif Anda',
-          'ikon': Icons.forum_rounded,
-          'warna': Colors.teal.shade600,
-          'halaman': const HalamanChatTraveler(),
-          'tag': 'Pesan Nyata',
         },
         {
           'judul': 'Rekomendasi Cerdas AI',

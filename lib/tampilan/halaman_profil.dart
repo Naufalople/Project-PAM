@@ -11,7 +11,6 @@ import 'halaman_dompet_rekber.dart';
 import 'halaman_peta_lokasi.dart';
 import 'halaman_status_pesanan.dart';
 import 'halaman_kelola_pesanan_traveler.dart';
-import 'halaman_chat_traveler.dart';
 
 // Halaman Profil Pengguna: Informasi Akun, Foto, Sertifikat Blockchain, dan Logout
 class HalamanProfil extends StatefulWidget {
@@ -787,34 +786,6 @@ class _HalamanProfilState extends State<HalamanProfil> {
                               ? const HalamanKelolaPesananTraveler()
                               : const HalamanStatusPesanan(),
                         ),
-                      );
-                    },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.teal.shade50,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.forum_rounded, color: Colors.teal.shade800),
-                    ),
-                    title: Text(
-                      (_profilPengguna?.peran == 'TRAVELER')
-                          ? 'Chat Langsung dengan Pemesan'
-                          : 'Chat Langsung dengan Traveler',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                    ),
-                    subtitle: const Text(
-                      'Obrolan nyata dua arah antar akun manusia (bukan bot)',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => const HalamanChatTraveler()),
                       );
                     },
                   ),

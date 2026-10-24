@@ -8,7 +8,6 @@ import '../layanan/layanan_otentikasi.dart';
 import '../layanan/layanan_sensor.dart';
 import '../widget/kartu_barang.dart';
 import 'halaman_detail_barang.dart';
-import 'halaman_chat_traveler.dart';
 
 // Halaman Beranda: Katalog Jastip, Filter Negara Singgah, dan Pencarian Live
 class HalamanBeranda extends StatefulWidget {
@@ -197,19 +196,6 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
-          // Poin 4: Shortcut Obrolan (Chat) di Header Beranda tepat di samping keranjang
-          IconButton(
-            tooltip: _peranAktif == 'TRAVELER' ? 'Kotak Masuk Chat Pemesan' : 'Chat Traveler',
-            icon: const Icon(Icons.chat_bubble_outline_rounded),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const HalamanChatTraveler(),
-                ),
-              );
-            },
-          ),
           if (_peranAktif != 'TRAVELER')
             IconButton(
               tooltip: 'Keranjang',

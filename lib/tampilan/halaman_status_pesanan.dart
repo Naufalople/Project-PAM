@@ -7,7 +7,6 @@ import '../layanan/layanan_otentikasi.dart';
 import '../layanan/layanan_sinkronisasi_online.dart';
 import '../model/model_pengguna.dart';
 import '../model/model_pesanan_jastip.dart';
-import 'halaman_chat_traveler.dart';
 import 'halaman_dompet_rekber.dart';
 import 'halaman_kelola_pesanan_traveler.dart';
 import 'halaman_peta_lokasi.dart';
@@ -373,20 +372,6 @@ class _HalamanStatusPesananState extends State<HalamanStatusPesanan> {
             },
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: Colors.teal.shade800,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.forum_rounded),
-        label: const Text('Chat Langsung Traveler'),
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const HalamanChatTraveler(),
-            ),
-          );
-        },
       ),
       body: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),

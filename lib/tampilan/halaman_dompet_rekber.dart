@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../layanan/layanan_rekber.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
+import '../layanan/layanan_blockchain.dart';
 import '../layanan/layanan_otentikasi.dart';
 import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_sinkronisasi_online.dart';
+import '../model/model_blok_transaksi.dart';
 import '../model/model_pesanan_jastip.dart';
 import '../model/model_transaksi_rekber.dart';
 
@@ -28,6 +31,7 @@ class _HalamanDompetRekberState extends State<HalamanDompetRekber> {
   String _peranPenggunaAktif = 'TRAVELER';
   List<ModelPesananJastip> _daftarPesanan = [];
   List<ModelPenarikanDana> _riwayatPenarikan = [];
+  List<ModelBlokTransaksi> _rantaiBlockchain = [];
   bool _sedangMemuat = true;
 
   @override
@@ -36,9 +40,14 @@ class _HalamanDompetRekberState extends State<HalamanDompetRekber> {
     if (widget.peranOverride != null) {
       _peranPenggunaAktif = widget.peranOverride!;
     }
+    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+      _sedangMemuat = false;
+    }
     _muatDataRekber();
-    LayananSinkronisasiOnline.sinkronkanPesananOnline();
-    LayananSinkronisasiOnline.sinkronkanRekberOnline();
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      LayananSinkronisasiOnline.sinkronkanPesananOnline();
+      LayananSinkronisasiOnline.sinkronkanRekberOnline();
+    }
     LayananSinkronisasiOnline.pemicuPembaruanRekber.addListener(_muatDataRekber);
     LayananSinkronisasiOnline.pemicuPembaruanPesanan.addListener(_muatDataRekber);
   }
@@ -72,6 +81,8 @@ class _HalamanDompetRekberState extends State<HalamanDompetRekber> {
     final riwayat = LayananRekber.ambilRiwayatPenarikan(
       namaTraveler: peran == 'TRAVELER' ? namaTraveler : null,
     );
+    await LayananBlockchain.inisialisasiBlockchain();
+    final rantai = LayananBasisDataLokal.ambilRantaiBlockchain();
 
     if (mounted) {
       setState(() {
@@ -81,6 +92,7 @@ class _HalamanDompetRekberState extends State<HalamanDompetRekber> {
         _saldoAktif = aktif;
         _daftarPesanan = semuaPesanan;
         _riwayatPenarikan = riwayat;
+        _rantaiBlockchain = rantai;
         _sedangMemuat = false;
       });
     }
@@ -132,9 +144,12 @@ class _HalamanDompetRekberState extends State<HalamanDompetRekber> {
                       children: [
                         Icon(Icons.account_balance_wallet_rounded, color: Colors.teal.shade800, size: 24),
                         const SizedBox(width: 10),
-                        const Text(
-                          'Tarik Saldo ke Rekening Bank',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        const Expanded(
+                          child: Text(
+                            'Tarik Saldo ke Rekening Bank',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       ],
                     ),
@@ -342,7 +357,9 @@ class _HalamanDompetRekberState extends State<HalamanDompetRekber> {
             children: [
               const Icon(Icons.check_circle, color: Colors.green, size: 28),
               const SizedBox(width: 8),
-              const Text('Penarikan Berhasil'),
+              const Expanded(
+                child: Text('Penarikan Berhasil', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
             ],
           ),
           content: Text(hasil.pesan, style: const TextStyle(fontSize: 13, height: 1.4)),
@@ -412,7 +429,53 @@ class _HalamanDompetRekberState extends State<HalamanDompetRekber> {
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 13, color: Colors.black54, height: 1.4),
                 ),
-                const SizedBox(height: 24),
+                Container(
+                  margin: const EdgeInsets.symmetric(vertical: 16),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.teal.shade200),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.account_balance_wallet_rounded, color: Colors.teal.shade800, size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Saldo Dompet Pemesan (Auto-Refund):',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Rp ${_formatRupiah(LayananRekber.ambilSaldoDompetPemesan())}',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.green.shade800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Dana pesanan yang dibatalkan oleh traveler karena barang kosong telah dikembalikan utuh 100% ke dompet ini.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 10.5, color: Colors.teal.shade900),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
                 ElevatedButton.icon(
                   onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
@@ -837,11 +900,198 @@ class _HalamanDompetRekberState extends State<HalamanDompetRekber> {
                         }).toList(),
                       ),
                     ],
+                    // BUKU BESAR BLOCKCHAIN SEDERHANA (LEDGER SHA-256)
+                    _buildBagianBlockchain(),
                     const SizedBox(height: 30),
                   ],
                 ),
               ),
             ),
+    );
+  }
+
+  Widget _buildBagianBlockchain() {
+    final bool valid = LayananBlockchain.verifikasiIntegritasBlockchain();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.indigo.shade100),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.indigo.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.link_rounded, color: Colors.indigo.shade800, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Buku Besar Blockchain (Ledger SHA-256)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Setiap transaksi Rekber dicatat sebagai blok berantai kriptografis.',
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: valid ? Colors.green.shade50 : Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: valid ? Colors.green.shade300 : Colors.red.shade300),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(valid ? Icons.verified_rounded : Icons.warning_amber_rounded,
+                        color: valid ? Colors.green.shade800 : Colors.red.shade800, size: 14),
+                    const SizedBox(width: 6),
+                    Text(
+                      valid ? 'Integritas Rantai: 100% Asli' : 'Rantai Termodifikasi!',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: valid ? Colors.green.shade900 : Colors.red.shade900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: Colors.indigo.shade700,
+                ),
+                onPressed: () {
+                  final bool cek = LayananBlockchain.verifikasiIntegritasBlockchain();
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      title: Row(
+                        children: [
+                          Icon(cek ? Icons.verified_user_rounded : Icons.gpp_bad_rounded,
+                              color: cek ? Colors.green : Colors.red),
+                          const SizedBox(width: 8),
+                          const Text('Verifikasi Blockchain', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      content: Text(
+                        cek
+                            ? 'Rantai blok valid 100%! Seluruh nilai Hash SHA-256 dan Previous Hash sinkron. Tidak ada manipulasi data pada bukti transaksi Rekber.'
+                            : 'Peringatan: Hash rantai blok tidak cocok!',
+                        style: const TextStyle(fontSize: 13, height: 1.4),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.shield_outlined, size: 16),
+                label: const Text('Verifikasi', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          const Divider(height: 20),
+          Text(
+            'Rincian Blok Tersimpan (${_rantaiBlockchain.length} Blok):',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87),
+          ),
+          const SizedBox(height: 8),
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _rantaiBlockchain.length,
+            itemBuilder: (ctx, idx) {
+              final blok = _rantaiBlockchain[idx];
+              final isGenesis = blok.indeks == 0;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isGenesis ? const Color(0xFFF8FAFC) : const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isGenesis ? Colors.grey.shade300 : Colors.teal.shade200,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          isGenesis ? 'Blok #0 (Genesis Block)' : 'Blok #${blok.indeks} (Transaksi Rekber)',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                            color: isGenesis ? Colors.blueGrey.shade800 : Colors.teal.shade900,
+                          ),
+                        ),
+                        Text(
+                          blok.waktuStempel.length >= 10 ? blok.waktuStempel.substring(0, 10) : '',
+                          style: const TextStyle(fontSize: 10, color: Colors.black45),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    if (blok.dataTransaksi['idPesanan'] != null)
+                      Text(
+                        'ID Pesanan: ${blok.dataTransaksi['idPesanan']} • ${blok.dataTransaksi['namaPembeli'] ?? ""}',
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600),
+                      ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Hash: ${blok.hash.length >= 24 ? "${blok.hash.substring(0, 16)}...${blok.hash.substring(blok.hash.length - 8)}" : blok.hash}',
+                      style: const TextStyle(fontSize: 9.5, fontFamily: 'monospace', color: Colors.black87),
+                    ),
+                    Text(
+                      'Prev Hash: ${blok.hashSebelumnya.length > 24 ? "${blok.hashSebelumnya.substring(0, 16)}..." : blok.hashSebelumnya}',
+                      style: TextStyle(fontSize: 9.5, fontFamily: 'monospace', color: Colors.grey.shade600),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 

@@ -226,44 +226,53 @@ class _HalamanDetailBarangState extends State<HalamanDetailBarang> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Harga Asli di Negara Singgah:',
-                              style: TextStyle(fontSize: 12, color: Colors.black54),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              LayananKonversi.formatMataUangAsing(
-                                widget.barang.hargaAsli,
-                                widget.barang.kodeMataUang,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Harga Asli di LN:',
+                                style: TextStyle(fontSize: 12, color: Colors.black54),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black87,
+                              const SizedBox(height: 2),
+                              Text(
+                                LayananKonversi.formatMataUangAsing(
+                                  widget.barang.hargaAsli,
+                                  widget.barang.kodeMataUang,
+                                ),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            const Text(
-                              'Estimasi Total Rupiah:',
-                              style: TextStyle(fontSize: 12, color: Colors.black54),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              LayananKonversi.formatRupiah(widget.barang.estimasiHargaIdr),
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.teal.shade800,
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              const Text(
+                                'Estimasi Rupiah:',
+                                style: TextStyle(fontSize: 12, color: Colors.black54),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 2),
+                              Text(
+                                LayananKonversi.formatRupiah(widget.barang.estimasiHargaIdr),
+                                style: TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.teal.shade800,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),

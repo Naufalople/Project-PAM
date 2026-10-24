@@ -1,21 +1,99 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../layanan/layanan_notifikasi.dart';
 
 /// Halaman LBS (Location Based Service) Titik Temu COD JastipGo:
+/// Sesuai TODO_PERUBAHAN_DATABASE.txt:
 /// 1. Integrasi Peta Interaktif OpenStreetMap (OSM) via flutter_map & latlong2
 /// 2. Pelacakan Nyata GPS HP (Geolocator Stream) & perhitungan jarak dinamis
-/// 3. Visualisasi Tepat 2 Marker (Lokasi Pengguna & Titik COD Terpilih, tanpa garis polyline)
-/// 4. Navigasi Eksternal: Tombol "Arahkan dengan Google Maps" via url_launcher
+/// 3. Navigasi Mandiri Langsung di Dalam Aplikasi (In-App Routing) via OSRM API & PolylineLayer
+/// 4. Panduan navigasi berarah (turn-by-turn instruction, bearing, sisa jarak, & auto-center)
 class HalamanPetaLokasi extends StatefulWidget {
   final int indeksTitikAwal;
 
   const HalamanPetaLokasi({super.key, this.indeksTitikAwal = 0});
+
+  /// Mengambil titik koordinat rute jalan raya via API perutean OSRM (Open Source Routing Machine)
+  /// Format OSRM: https://router.project-osrm.org/route/v1/driving/{lng1},{lat1};{lng2},{lat2}?overview=full&geometries=geojson
+  static Future<List<LatLng>> ambilRuteOsrm({
+    required double latAwal,
+    required double lngAwal,
+    required double latTujuan,
+    required double lngTujuan,
+    http.Client? client,
+  }) async {
+    final httpClient = client ?? http.Client();
+    try {
+      final url = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/$lngAwal,$latAwal;$lngTujuan,$latTujuan?overview=full&geometries=geojson',
+      );
+      final response = await httpClient
+          .get(url, headers: {'User-Agent': 'JastipGoApp/2.0'})
+          .timeout(const Duration(seconds: 4));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map &&
+            decoded['routes'] is List &&
+            (decoded['routes'] as List).isNotEmpty) {
+          final route = decoded['routes'][0];
+          final geometry = route['geometry'];
+          if (geometry is Map && geometry['coordinates'] is List) {
+            final List<dynamic> coords = geometry['coordinates'];
+            final List<LatLng> points = [];
+            for (var c in coords) {
+              if (c is List && c.length >= 2) {
+                final double lng = (c[0] as num).toDouble();
+                final double lat = (c[1] as num).toDouble();
+                points.add(LatLng(lat, lng));
+              }
+            }
+            if (points.isNotEmpty) {
+              return points;
+            }
+          }
+        }
+      }
+    } catch (_) {
+    } finally {
+      if (client == null) {
+        httpClient.close();
+      }
+    }
+
+    // Fallback otomatis ke interpolasi geometris jika OSRM timeout / offline
+    return buatTitikInterpolasiRute(
+      latAwal: latAwal,
+      lngAwal: lngAwal,
+      latTujuan: latTujuan,
+      lngTujuan: lngTujuan,
+    );
+  }
+
+  /// Generator titik interpolasi rute panduan in-app (Fail-safe routing fallback)
+  static List<LatLng> buatTitikInterpolasiRute({
+    required double latAwal,
+    required double lngAwal,
+    required double latTujuan,
+    required double lngTujuan,
+    int jumlahTitik = 8,
+  }) {
+    final List<LatLng> list = [];
+    for (int i = 0; i <= jumlahTitik; i++) {
+      final double t = i / jumlahTitik;
+      final double lat = latAwal + (latTujuan - latAwal) * t;
+      final double lng = lngAwal + (lngTujuan - lngAwal) * t;
+      list.add(LatLng(lat, lng));
+    }
+    return list;
+  }
 
   /// Fungsi utilitas statis untuk menghitung jarak garis lurus via Geolocator.distanceBetween
   static double hitungJarakLurusKm({
@@ -33,8 +111,7 @@ class HalamanPetaLokasi extends StatefulWidget {
     return jarakMeter / 1000.0;
   }
 
-  /// Format URL Google Maps Navigasi Eksternal sesuai standar spesifikasi:
-  /// https://www.google.com/maps/dir/?api=1&origin={lat_user},{lng_user}&destination={lat_cod},{lng_cod}
+  /// Format URL Google Maps Navigasi Eksternal (Cadangan Opsional)
   static String buatUrlNavigasiGoogleMaps({
     required double latUser,
     required double lngUser,
@@ -54,6 +131,12 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
   bool _sedangMencariLokasi = false;
   String _statusLokasi = 'Menghubungkan sensor GPS HP...';
   late int _indeksTitikTerpilih;
+
+  // State Navigasi Mandiri In-App (TODO_PERUBAHAN_DATABASE.txt)
+  bool _modeNavigasiInApp = false;
+  List<LatLng> _titikRuteNavigasi = [];
+  bool _sedangMemuatRute = false;
+  String _instruksiPanduan = '';
 
   late AnimationController _animasiPulse;
   final MapController _mapController = MapController();
@@ -163,12 +246,30 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
         (posisiBaru) {
           if (!mounted) return;
           // Perbarui koordinat marker posisi pengguna secara real-time
-          // Jangan paksa kamera untuk selalu auto-center jika pengguna sedang menggeser peta
           setState(() {
             _posisiPengguna = posisiBaru;
             _sedangMencariLokasi = false;
             _statusLokasi = 'GPS Live • ${posisiBaru.latitude.toStringAsFixed(5)}, ${posisiBaru.longitude.toStringAsFixed(5)}';
+
+            if (_modeNavigasiInApp) {
+              final hubTerpilih = _daftarTitikTemu[_indeksTitikTerpilih];
+              if (_titikRuteNavigasi.isNotEmpty) {
+                _titikRuteNavigasi[0] = LatLng(posisiBaru.latitude, posisiBaru.longitude);
+              }
+              final double sisaKm = HalamanPetaLokasi.hitungJarakLurusKm(
+                latAwal: posisiBaru.latitude,
+                lngAwal: posisiBaru.longitude,
+                latTujuan: hubTerpilih['lat'],
+                lngTujuan: hubTerpilih['lng'],
+              );
+              _instruksiPanduan = 'Lurus mengikuti rute • Sisa ${sisaKm.toStringAsFixed(1)} KM menuju ${hubTerpilih['nama']}.';
+            }
           });
+
+          // Kamera mengikuti pengguna jika mode navigasi in-app aktif
+          if (_modeNavigasiInApp) {
+            _pusatkanKeLokasi(posisiBaru.latitude, posisiBaru.longitude, zoom: 16.5);
+          }
         },
         onError: (err) {
           debugPrint('Info getPositionStream: $err');
@@ -233,76 +334,101 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
     return 'Barat Laut (NW)';
   }
 
-  /// Meluncurkan Aplikasi Google Maps Eksternal untuk Navigasi Nyata
-  Future<void> _bukaNavigasiGoogleMaps(double latTujuan, double lngTujuan, String namaTujuan) async {
+  /// Memuat garis rute jalan raya via OSRM API (Navigasi In-App)
+  Future<void> _muatRuteNavigasi({bool autoStart = false}) async {
+    final hubTerpilih = _daftarTitikTemu[_indeksTitikTerpilih];
     final double userLat = _posisiPengguna?.latitude ?? -7.7602;
     final double userLng = _posisiPengguna?.longitude ?? 110.4089;
 
-    final String urlString = HalamanPetaLokasi.buatUrlNavigasiGoogleMaps(
-      latUser: userLat,
-      lngUser: userLng,
-      latCod: latTujuan,
-      lngCod: lngTujuan,
+    setState(() {
+      _sedangMemuatRute = true;
+    });
+
+    final rute = await HalamanPetaLokasi.ambilRuteOsrm(
+      latAwal: userLat,
+      lngAwal: userLng,
+      latTujuan: hubTerpilih['lat'],
+      lngTujuan: hubTerpilih['lng'],
     );
-    final Uri urlPeta = Uri.parse(urlString);
 
-    try {
-      final bool bisaBuka = await canLaunchUrl(urlPeta);
-      if (bisaBuka) {
-        await launchUrl(urlPeta, mode: LaunchMode.externalApplication);
-      } else {
-        await launchUrl(urlPeta, mode: LaunchMode.externalNonBrowserApplication);
-      }
-
-      if (mounted) {
+    if (mounted) {
+      setState(() {
+        _titikRuteNavigasi = rute;
+        _sedangMemuatRute = false;
+        if (autoStart) {
+          _modeNavigasiInApp = true;
+          _instruksiPanduan = 'Ikuti garis panduan rute langsung menuju ${hubTerpilih['nama']}.';
+        }
+      });
+      if (autoStart) {
+        _pusatkanKePengguna(zoom: 16.5);
         LayananNotifikasi.kirimNotifikasi(
           context,
-          judul: 'Membuka Google Maps 🗺️',
-          pesan: 'Mengarahkan rute perjalanan sesungguhnya ke $namaTujuan.',
+          judul: 'Navigasi In-App Dimulai 🧭',
+          pesan: 'Mengarahkan perjalanan mandiri di peta aplikasi menuju ${hubTerpilih['nama']}.',
           ikon: Icons.navigation_rounded,
           warna: Colors.teal.shade800,
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Gagal membuka Google Maps secara otomatis.'),
-            behavior: SnackBarBehavior.floating,
-          ),
         );
       }
     }
   }
 
-  /// Pusatkan kamera peta OSM ke koordinat tertentu
+  /// Mengaktifkan / Menutup Navigasi Mandiri In-App (TODO_PERUBAHAN_DATABASE.txt)
+  void _toggleNavigasiInApp() {
+    if (_modeNavigasiInApp) {
+      setState(() {
+        _modeNavigasiInApp = false;
+        _instruksiPanduan = '';
+      });
+      final hubTerpilih = _daftarTitikTemu[_indeksTitikTerpilih];
+      _pusatkanKeLokasi(hubTerpilih['lat'], hubTerpilih['lng'], zoom: 13.5);
+    } else {
+      final hubTerpilih = _daftarTitikTemu[_indeksTitikTerpilih];
+      setState(() {
+        _modeNavigasiInApp = true;
+        _instruksiPanduan = 'Ikuti garis panduan rute langsung menuju ${hubTerpilih['nama']}.';
+      });
+      _muatRuteNavigasi(autoStart: true);
+    }
+  }
+
+  /// Pusatkan kamera peta OSM ke koordinat tertentu secara aman
   void _pusatkanKeLokasi(double lat, double lng, {double zoom = 14.5}) {
-    try {
-      _mapController.move(LatLng(lat, lng), zoom);
-    } catch (_) {}
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        _mapController.move(LatLng(lat, lng), zoom);
+      } catch (_) {}
+    });
   }
 
   /// Pusatkan kamera peta OSM ke lokasi GPS pengguna
-  void _pusatkanKePengguna() {
+  void _pusatkanKePengguna({double zoom = 15.0}) {
     final double userLat = _posisiPengguna?.latitude ?? -7.7602;
     final double userLng = _posisiPengguna?.longitude ?? 110.4089;
-    _pusatkanKeLokasi(userLat, userLng, zoom: 15.0);
+    _pusatkanKeLokasi(userLat, userLng, zoom: zoom);
   }
 
   /// Zoom In peta OSM
   void _zoomIn() {
-    try {
-      final currentZoom = _mapController.camera.zoom;
-      _mapController.move(_mapController.camera.center, (currentZoom + 1).clamp(4.0, 18.0));
-    } catch (_) {}
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        final currentZoom = _mapController.camera.zoom;
+        _mapController.move(_mapController.camera.center, (currentZoom + 1).clamp(4.0, 18.0));
+      } catch (_) {}
+    });
   }
 
   /// Zoom Out peta OSM
   void _zoomOut() {
-    try {
-      final currentZoom = _mapController.camera.zoom;
-      _mapController.move(_mapController.camera.center, (currentZoom - 1).clamp(4.0, 18.0));
-    } catch (_) {}
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        final currentZoom = _mapController.camera.zoom;
+        _mapController.move(_mapController.camera.center, (currentZoom - 1).clamp(4.0, 18.0));
+      } catch (_) {}
+    });
   }
 
   @override
@@ -393,6 +519,82 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
             ),
             const SizedBox(height: 14),
 
+            // Banner Panduan Navigasi Langsung di Aplikasi (Muncul saat Navigasi Aktif)
+            if (_modeNavigasiInApp)
+              Container(
+                key: const ValueKey('banner_panduan_navigasi_in_app'),
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.teal.shade800, Colors.teal.shade900],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.teal.withValues(alpha: 0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.navigation_rounded, color: Colors.amberAccent, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'NAVIGASI IN-APP AKTIF 🧭',
+                            style: TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _instruksiPanduan.isNotEmpty
+                                ? _instruksiPanduan
+                                : 'Menuju ${hubTerpilih['nama']}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Sisa: ${jarakTerpilihKm.toStringAsFixed(1)} KM • Arah ${_terjemahkanArahKompas(arahBearing)}',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.85),
+                              fontSize: 10.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Hentikan Navigasi',
+                      icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+                      onPressed: _toggleNavigasiInApp,
+                    ),
+                  ],
+                ),
+              ),
+
             // ====================================================================
             // WIDGET PETA INTERAKTIF OPENSTREETMAP (OSM)
             // ====================================================================
@@ -416,6 +618,7 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
                 children: [
                   // Peta Nyata OSM Menggunakan flutter_map & TileLayer OpenStreetMap
                   FlutterMap(
+                    key: const ValueKey('peta_osm_lbs'),
                     mapController: _mapController,
                     options: MapOptions(
                       initialCenter: LatLng(userLat, userLng),
@@ -434,10 +637,26 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
                         maxZoom: 19,
                       ),
 
-                      // Marker Layer: Peta HANYA menampilkan Tepat 2 Marker
-                      // Marker A: Lokasi Real-time Pengguna (currentLocationMarker)
-                      // Marker B: Titik Lokasi COD / Serah Terima yang Dipilih
-                      // DILARANG menggambar garis polyline atau rute internal di atas peta
+                      // Layer Garis Panduan Rute In-App OSRM (TODO_PERUBAHAN_DATABASE.txt)
+                      if (_modeNavigasiInApp || _titikRuteNavigasi.isNotEmpty)
+                        PolylineLayer(
+                          polylines: [
+                            Polyline(
+                              points: _titikRuteNavigasi.isNotEmpty
+                                  ? _titikRuteNavigasi
+                                  : [
+                                      LatLng(userLat, userLng),
+                                      LatLng(hubTerpilih['lat'], hubTerpilih['lng']),
+                                    ],
+                              strokeWidth: 5.0,
+                              color: Colors.teal.shade700,
+                              borderColor: Colors.teal.shade900,
+                              borderStrokeWidth: 1.5,
+                            ),
+                          ],
+                        ),
+
+                      // Marker Layer: Lokasi Pengguna & Titik COD Terpilih
                       MarkerLayer(
                         markers: [
                           // Marker A: Lokasi Pengguna Real-Time (GPS HP Live Pulse)
@@ -681,14 +900,14 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(color: Colors.teal.shade200),
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.pin_drop, size: 12, color: Colors.teal),
-                              SizedBox(width: 4),
+                              const Icon(Icons.pin_drop, size: 12, color: Colors.teal),
+                              const SizedBox(width: 4),
                               Text(
-                                '2 Marker (OSM LBS)',
-                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.teal),
+                                _modeNavigasiInApp ? 'Navigasi OSRM Aktif' : '2 Marker (OSM LBS)',
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.teal),
                               ),
                             ],
                           ),
@@ -756,29 +975,37 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
             const SizedBox(height: 14),
 
             // ====================================================================
-            // TOMBOL UTAMA: ARAHKAN DENGAN GOOGLE MAPS (NAVIGASI EKSTERNAL)
+            // TOMBOL UTAMA: NAVIGASI MANDIRI LANGSUNG DI DALAM APLIKASI (IN-APP ROUTING)
+            // Sesuai TODO_PERUBAHAN_DATABASE.txt: Navigasi bergerak mandiri di peta internal
             // ====================================================================
             SizedBox(
               width: double.infinity,
               height: 52,
               child: ElevatedButton.icon(
+                key: const ValueKey('tombol_navigasi_in_app'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal.shade800,
+                  backgroundColor: _modeNavigasiInApp ? Colors.red.shade700 : Colors.teal.shade800,
                   foregroundColor: Colors.white,
                   elevation: 3,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
-                onPressed: () => _bukaNavigasiGoogleMaps(
-                  hubTerpilih['lat'],
-                  hubTerpilih['lng'],
-                  hubTerpilih['nama'],
-                ),
-                icon: const Icon(Icons.map_rounded, size: 22, color: Colors.amberAccent),
-                label: const Text(
-                  'Arahkan dengan Google Maps',
-                  style: TextStyle(
+                onPressed: _toggleNavigasiInApp,
+                icon: _sedangMemuatRute
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
+                    : Icon(
+                        _modeNavigasiInApp ? Icons.stop_circle_rounded : Icons.navigation_rounded,
+                        size: 22,
+                        color: Colors.amberAccent,
+                      ),
+                label: Text(
+                  _modeNavigasiInApp ? 'Hentikan Navigasi' : 'Mulai Navigasi Langsung di Aplikasi',
+                  style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.3,
@@ -834,7 +1061,11 @@ class _HalamanPetaLokasiState extends State<HalamanPetaLokasi> with SingleTicker
                       setState(() {
                         _indeksTitikTerpilih = index;
                       });
-                      _pusatkanKeLokasi(hub['lat'], hub['lng']);
+                      if (_modeNavigasiInApp) {
+                        _muatRuteNavigasi(autoStart: true);
+                      } else {
+                        _pusatkanKeLokasi(hub['lat'], hub['lng']);
+                      }
                     },
                     child: Padding(
                       padding: const EdgeInsets.all(14),

@@ -4,7 +4,11 @@ import '../model/model_blok_transaksi.dart';
 import '../model/model_pesanan_jastip.dart';
 import '../model/model_pesan_chat.dart';
 import '../model/model_barang_jastip.dart';
+import 'layanan_firebase.dart';
+import 'layanan_otentikasi.dart';
+import 'layanan_rekber.dart';
 import 'layanan_sinkronisasi_online.dart';
+import 'layanan_supabase.dart';
 
 // Model data untuk Kupon / Voucher Promo Diskon Jastip dengan Isolasi Akun (User ID)
 class ModelVoucher {
@@ -78,6 +82,8 @@ class LayananBasisDataLokal {
     final boxChat = await Hive.openBox(namaKotakChat);
     await Hive.openBox(namaKotakKatalog);
     await Hive.openBox(namaKotakPengguna);
+    await Hive.openBox(LayananRekber.namaKotakDompetPemesan);
+    await Hive.openBox(LayananRekber.namaKotakRiwayatRefund);
 
     // Hapus pesanan bawaan dummy lama agar HANYA pesanan nyata yang dibuat pengguna yang tampil
     final List<int> indeksHapus = [];
@@ -509,22 +515,42 @@ class LayananBasisDataLokal {
     }).toList();
   }
 
-  // Tambah pesanan baru (misal saat checkout selesai) & sinkronkan online
+  // Tambah pesanan baru (misal saat checkout selesai) & sinkronkan online real-time
   static Future<void> tambahPesanan(ModelPesananJastip pesananBaru) async {
     final box = Hive.box(namaKotakPesanan);
     await box.add(pesananBaru.keMap());
     await LayananSinkronisasiOnline.unggahPesananBaru(pesananBaru);
+    await LayananSupabase.simpanPesananBaru(pesananBaru);
+    await LayananFirebase.simpanPesananBaru(pesananBaru);
   }
 
-  // Perbarui status dan lokasi pesanan serta sinkronkan ke server online
+  // Perbarui status dan lokasi pesanan serta sinkronkan ke server online real-time
+  // ATURAN KETAT: HANYA akun dengan peran Traveler yang diizinkan memperbarui status (TODO_MANAJEMEN_PESANAN.txt Poin 1)
   static Future<void> perbaruiStatusPesanan(
     String idPesanan, {
     required int tahapStatus,
     required String lokasiTerkini,
     String? metodePenyerahan,
     String? alamatPengiriman,
+    String? alasanPembatalan,
+    String? peranPengguna,
+    bool abaikanValidasiPeran = false,
   }) async {
+    // 1. Validasi Hak Akses: HANYA Traveler yang diizinkan memperbarui status pesanan
+    if (!abaikanValidasiPeran) {
+      final peran = peranPengguna ??
+          (await LayananOtentikasi.ambilProfilAktif())?.peran ??
+          await LayananOtentikasi.ambilPeranAktif();
+      if (peran != 'TRAVELER') {
+        throw StateError(
+          'Akses Ditolak: HANYA akun dengan peran Traveler yang diizinkan untuk menggeser/memperbarui status pesanan.',
+        );
+      }
+    }
+
+    // 2. Perbarui data lokal di cache Hive
     final box = Hive.box(namaKotakPesanan);
+    ModelPesananJastip? pesananTerbaru;
     for (int i = 0; i < box.length; i++) {
       final data = box.getAt(i);
       if (data != null && data is Map && data['idPesanan'] == idPesanan) {
@@ -537,10 +563,17 @@ class LayananBasisDataLokal {
         if (alamatPengiriman != null) {
           pesanan.alamatPengiriman = alamatPengiriman;
         }
-        await box.putAt(i, pesanan.keMap());
+        final mapBaru = pesanan.keMap();
+        if (alasanPembatalan != null) {
+          mapBaru['alasanPembatalan'] = alasanPembatalan;
+        }
+        await box.putAt(i, mapBaru);
+        pesananTerbaru = pesanan;
         break;
       }
     }
+
+    // 3. Sinkronisasikan secara online real-time ke semua backend
     await LayananSinkronisasiOnline.perbaruiStatusPesananOnline(
       idPesanan,
       tahapStatus: tahapStatus,
@@ -548,19 +581,99 @@ class LayananBasisDataLokal {
       metodePenyerahan: metodePenyerahan,
       alamatPengiriman: alamatPengiriman,
     );
+    await LayananSupabase.perbaruiStatusPesanan(
+      idPesanan,
+      tahapStatus: tahapStatus,
+      lokasiTerkini: lokasiTerkini,
+      metodePenyerahan: metodePenyerahan,
+      alamatPengiriman: alamatPengiriman,
+    );
+    await LayananFirebase.perbaruiStatusPesanan(
+      idPesanan,
+      tahapStatus: tahapStatus,
+      lokasiTerkini: lokasiTerkini,
+      metodePenyerahan: metodePenyerahan,
+      alamatPengiriman: alamatPengiriman,
+      alasanPembatalan: alasanPembatalan,
+    );
+
+    // 4. Jika status adalah Selesai (6), cairkan dana Rekber ke Saldo Aktif Traveler
+    if (tahapStatus >= 6 && pesananTerbaru != null) {
+      await LayananRekber.lepaskanDanaKeTraveler(pesanan: pesananTerbaru);
+    }
   }
 
-  /// Mengonfirmasi pesanan telah diterima oleh Pemesan (Poin 5)
-  /// Mengubah tahapStatus menjadi 6 (Selesai/Sudah Diterima)
-  static Future<void> konfirmasiPesananDiterima(String idPesanan) async {
+  /// Membatalkan pesanan karena barang tidak ada di luar negeri (Khusus Traveler)
+  /// dan memicu Auto-Refund 100% dari Rekber ke Dompet Pemesan secara real-time
+  /// (TODO_MANAJEMEN_PESANAN.txt Poin 2)
+  static Future<bool> batalkanPesananBarangKosong(
+    String idPesanan, {
+    String alasan = 'Barang Tidak Tersedia di Toko Luar Negeri',
+    String? peranPengguna,
+    bool abaikanValidasiPeran = false,
+  }) async {
+    // 1. Validasi Hak Akses Khusus Traveler
+    if (!abaikanValidasiPeran) {
+      final peran = peranPengguna ??
+          (await LayananOtentikasi.ambilProfilAktif())?.peran ??
+          await LayananOtentikasi.ambilPeranAktif();
+      if (peran != 'TRAVELER') {
+        throw StateError(
+          'Akses Ditolak: HANYA akun dengan peran Traveler yang diizinkan membatalkan pesanan.',
+        );
+      }
+    }
+
+    final box = Hive.box(namaKotakPesanan);
+    ModelPesananJastip? pesanan;
+    for (int i = 0; i < box.length; i++) {
+      final data = box.getAt(i);
+      if (data != null && data is Map && data['idPesanan'] == idPesanan) {
+        pesanan = ModelPesananJastip.dariMap(data);
+        pesanan.tahapStatus = ModelPesananJastip.statusDibatalkan;
+        pesanan.lokasiTerkini =
+            'Dibatalkan: $alasan (Dana Telah Di-refund 100% ke Dompet Pemesan)';
+        pesanan.alasanPembatalan = alasan;
+        final mapBaru = pesanan.keMap();
+        await box.putAt(i, mapBaru);
+        break;
+      }
+    }
+
+    if (pesanan == null) return false;
+
+    // 2. Auto-Refund dana dari Rekber ke Dompet Pemesan secara utuh 100%
+    await LayananRekber.refundDanaKePemesan(pesanan: pesanan, alasan: alasan);
+
+    // 3. Sinkronisasikan status batal dan pembaruan dompet ke Firebase Database
+    await LayananFirebase.batalkanPesananDanRefund(pesanan: pesanan, alasan: alasan);
+
+    // 4. Sinkronisasikan ke Supabase & Cloud Backend
+    await LayananSinkronisasiOnline.perbaruiStatusPesananOnline(
+      idPesanan,
+      tahapStatus: ModelPesananJastip.statusDibatalkan,
+      lokasiTerkini: pesanan.lokasiTerkini,
+    );
+    await LayananSupabase.perbaruiStatusPesanan(
+      idPesanan,
+      tahapStatus: ModelPesananJastip.statusDibatalkan,
+      lokasiTerkini: pesanan.lokasiTerkini,
+    );
+
+    return true;
+  }
+
+  /// Mengonfirmasi pesanan telah diterima (Mengubah tahapStatus menjadi 6)
+  static Future<void> konfirmasiPesananDiterima(String idPesanan, {bool abaikanValidasiPeran = true}) async {
     await perbaruiStatusPesanan(
       idPesanan,
       tahapStatus: 6,
       lokasiTerkini: 'Telah Diterima Pemesan di Alamat Tujuan (Transaksi Selesai) 🎉',
+      abaikanValidasiPeran: abaikanValidasiPeran,
     );
   }
 
-  /// Mengambil daftar pesanan berstatus "Belum Diterima" (tahapStatus < 6)
+  /// Mengambil daftar pesanan berstatus "Belum Diterima" (tahapStatus >= 1 && tahapStatus < 6)
   static List<ModelPesananJastip> ambilPesananBelumDiterima({String? userId, String? email}) {
     final list = ambilPesananUntukPengguna(userId: userId, email: email);
     return list.where((p) => p.apakahBelumDiterima).toList();
@@ -570,6 +683,12 @@ class LayananBasisDataLokal {
   static List<ModelPesananJastip> ambilPesananSudahDiterima({String? userId, String? email}) {
     final list = ambilPesananUntukPengguna(userId: userId, email: email);
     return list.where((p) => p.apakahSudahDiterima).toList();
+  }
+
+  /// Mengambil daftar pesanan berstatus "Dibatalkan" (tahapStatus == 0)
+  static List<ModelPesananJastip> ambilPesananDibatalkan({String? userId, String? email}) {
+    final list = ambilPesananUntukPengguna(userId: userId, email: email);
+    return list.where((p) => p.apakahDibatalkan).toList();
   }
 
   // ==========================================
@@ -656,6 +775,7 @@ class LayananBasisDataLokal {
 
   // Ambil semua blok transaksi tersimpan
   static List<ModelBlokTransaksi> ambilRantaiBlockchain() {
+    if (!Hive.isBoxOpen(namaKotakBlockchain)) return [];
     final box = Hive.box(namaKotakBlockchain);
     final List<ModelBlokTransaksi> rantai = [];
     for (int i = 0; i < box.length; i++) {
@@ -669,8 +789,13 @@ class LayananBasisDataLokal {
 
   // Simpan blok transaksi baru ke dalam Hive
   static Future<void> simpanBlokKeBlockchain(ModelBlokTransaksi blok) async {
-    final box = Hive.box(namaKotakBlockchain);
-    await box.add(blok.keMap());
+    try {
+      if (!Hive.isBoxOpen(namaKotakBlockchain)) {
+        await Hive.openBox(namaKotakBlockchain);
+      }
+      final box = Hive.box(namaKotakBlockchain);
+      await box.add(blok.keMap());
+    } catch (_) {}
   }
 
   // ==========================================

@@ -41,6 +41,15 @@ class ModelItemPesanan {
 
 // Model data untuk Pesanan Jastip Lengkap (Disimpan di Hive)
 class ModelPesananJastip {
+  // Nilai Konstanta Tahap Status Pesanan
+  static const int statusDibatalkan = 0;
+  static const int statusRekberDitahan = 1;
+  static const int statusDiAcc = 2;
+  static const int statusSudahDibeli = 3;
+  static const int statusPenerbangan = 4;
+  static const int statusTibaDiRi = 5;
+  static const int statusSelesai = 6;
+
   final String idPesanan;
   final String? userId; // ID Unik akun pengguna pembuat pesanan
   final String? emailPemesan; // Email akun pemesan untuk isolasi pelacakan
@@ -49,15 +58,17 @@ class ModelPesananJastip {
   final String negaraAsal;
   final String namaTraveler;
   String lokasiTerkini;
-  int tahapStatus; // 1: Rekber Ditahan, 2: Di-ACC, 3: Sudah Dibeli, 4: Penerbangan, 5: Tiba di RI, 6: Selesai
+  int tahapStatus; // 0: Dibatalkan, 1: Rekber Ditahan, 2: Di-ACC, 3: Sudah Dibeli, 4: Penerbangan, 5: Tiba di RI, 6: Selesai
   String metodePenyerahan; // 'COD_LBS' atau 'KURIR_ANTAR'
   String alamatPengiriman;
   final int totalHargaIdr;
   final List<ModelItemPesanan> daftarBarang;
+  String? alasanPembatalan;
 
-  // Poin 5: Kategori Status Penerimaan Pesanan (Belum Diterima / Sudah Diterima)
-  bool get apakahSudahDiterima => tahapStatus >= 6;
-  bool get apakahBelumDiterima => tahapStatus < 6;
+  // Kategori Status Penerimaan Pesanan (TODO_MANAJEMEN_PESANAN.txt)
+  bool get apakahDibatalkan => tahapStatus == statusDibatalkan;
+  bool get apakahSudahDiterima => tahapStatus >= statusSelesai;
+  bool get apakahBelumDiterima => tahapStatus >= statusRekberDitahan && tahapStatus < statusSelesai;
 
   ModelPesananJastip({
     required this.idPesanan,
@@ -73,6 +84,7 @@ class ModelPesananJastip {
     this.alamatPengiriman = 'Hub Kampus UPN Veteran Yogyakarta (Titik Temu LBS)',
     required this.totalHargaIdr,
     required this.daftarBarang,
+    this.alasanPembatalan,
   });
 
   factory ModelPesananJastip.dariMap(Map<dynamic, dynamic> map) {
@@ -98,6 +110,7 @@ class ModelPesananJastip {
       alamatPengiriman: map['alamatPengiriman'] as String? ?? 'Hub Kampus UPN Veteran Yogyakarta (Titik Temu LBS)',
       totalHargaIdr: (map['totalHargaIdr'] as num?)?.toInt() ?? 0,
       daftarBarang: barangList,
+      alasanPembatalan: map['alasanPembatalan']?.toString(),
     );
   }
 
@@ -116,6 +129,7 @@ class ModelPesananJastip {
       'alamatPengiriman': alamatPengiriman,
       'totalHargaIdr': totalHargaIdr,
       'daftarBarang': daftarBarang.map((b) => b.keMap()).toList(),
+      if (alasanPembatalan != null) 'alasanPembatalan': alasanPembatalan,
     };
   }
 }

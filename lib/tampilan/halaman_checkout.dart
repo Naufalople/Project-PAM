@@ -281,12 +281,14 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
     final String idPesanan = 'PO-JSTP-${DateTime.now().millisecondsSinceEpoch % 1000000}';
     final String negaraAsal = widget.daftarItem.isNotEmpty ? widget.daftarItem.first.negara : 'Global';
 
-    // 3. Catat Transaksi Pembayaran ke Sistem Rekber Escrow (Dana Ditahan Aman)
+    // 3. Catat Transaksi Pembayaran ke Sistem Rekber Escrow & Ledger Blockchain Sederhana
     await LayananRekber.catatPembayaranRekber(
       idPesanan: idPesanan,
       namaPemesan: namaPembeli,
       nominalIdr: _totalBayar,
       namaTraveler: 'Traveler Terverifikasi',
+      daftarBarang: widget.daftarItem.map((item) => item.namaBarang).toList(),
+      negaraAsal: negaraAsal,
     );
 
     // Ambil nama traveler terdaftar secara dinamis

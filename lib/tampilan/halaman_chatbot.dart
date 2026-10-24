@@ -113,12 +113,22 @@ class _HalamanChatbotState extends State<HalamanChatbot> {
               child: const Icon(Icons.smart_toy_outlined, size: 20),
             ),
             const SizedBox(width: 8),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('JastipGo Assistant', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                Text('Online • LLM AI Powered', style: TextStyle(fontSize: 10, color: Colors.white70)),
-              ],
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'JastipGo Assistant',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    'Online • LLM AI Powered',
+                    style: TextStyle(fontSize: 10, color: Colors.white70),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           ],
         ),

@@ -396,40 +396,57 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
 
               // Pilihan Kategori & Filter Urutan
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   // Filter Kategori
-                  DropdownButton<String>(
-                    value: _kategoriDipilih,
-                    underline: const SizedBox(),
-                    icon: const Icon(Icons.category_outlined, size: 18, color: Colors.teal),
-                    style: TextStyle(color: Colors.teal.shade900, fontWeight: FontWeight.bold, fontSize: 13),
-                    items: _daftarKategori.map((k) {
-                      return DropdownMenuItem(value: k, child: Text('Kategori: $k'));
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() => _kategoriDipilih = val);
-                        _muatDataBarang();
-                      }
-                    },
+                  Expanded(
+                    flex: 3,
+                    child: DropdownButton<String>(
+                      value: _kategoriDipilih,
+                      isExpanded: true,
+                      underline: const SizedBox(),
+                      icon: const Icon(Icons.category_outlined, size: 18, color: Colors.teal),
+                      style: TextStyle(color: Colors.teal.shade900, fontWeight: FontWeight.bold, fontSize: 12),
+                      items: _daftarKategori.map((k) {
+                        return DropdownMenuItem(
+                          value: k,
+                          child: Text(
+                            k == 'Semua Kategori' ? 'Semua Kategori' : k,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() => _kategoriDipilih = val);
+                          _muatDataBarang();
+                        }
+                      },
+                    ),
                   ),
+                  const SizedBox(width: 8),
 
                   // Filter Urutan Harga
-                  DropdownButton<String>(
-                    value: _urutanHarga,
-                    underline: const SizedBox(),
-                    icon: const Icon(Icons.sort, size: 18, color: Colors.teal),
-                    style: TextStyle(color: Colors.teal.shade900, fontWeight: FontWeight.bold, fontSize: 13),
-                    items: ['Normal', 'Termurah', 'Termahal', 'Populer'].map((u) {
-                      return DropdownMenuItem(value: u, child: Text('Urut: $u'));
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() => _urutanHarga = val);
-                        _muatDataBarang();
-                      }
-                    },
+                  Expanded(
+                    flex: 2,
+                    child: DropdownButton<String>(
+                      value: _urutanHarga,
+                      isExpanded: true,
+                      underline: const SizedBox(),
+                      icon: const Icon(Icons.sort, size: 18, color: Colors.teal),
+                      style: TextStyle(color: Colors.teal.shade900, fontWeight: FontWeight.bold, fontSize: 12),
+                      items: ['Normal', 'Termurah', 'Termahal', 'Populer'].map((u) {
+                        return DropdownMenuItem(
+                          value: u,
+                          child: Text('Urut: $u', overflow: TextOverflow.ellipsis),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() => _urutanHarga = val);
+                          _muatDataBarang();
+                        }
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -522,7 +539,7 @@ class _HalamanBerandaState extends State<HalamanBeranda> {
                             crossAxisCount: 2,
                             crossAxisSpacing: 12,
                             mainAxisSpacing: 12,
-                            childAspectRatio: 0.52,
+                            childAspectRatio: 0.50,
                           ),
                           itemBuilder: (context, index) {
                             final barang = _daftarBarang[index];

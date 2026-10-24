@@ -1,3 +1,4 @@
+import 'package:hive/hive.dart';
 import '../model/model_blok_transaksi.dart';
 import 'layanan_basisdata_lokal.dart';
 
@@ -5,6 +6,9 @@ import 'layanan_basisdata_lokal.dart';
 class LayananBlockchain {
   // Inisialisasi Genesis Block (Blok Awal) jika rantai masih kosong
   static Future<void> inisialisasiBlockchain() async {
+    if (!Hive.isBoxOpen(LayananBasisDataLokal.namaKotakBlockchain)) {
+      return;
+    }
     final List<ModelBlokTransaksi> rantai = LayananBasisDataLokal.ambilRantaiBlockchain();
     if (rantai.isEmpty) {
       final ModelBlokTransaksi blokGenesis = ModelBlokTransaksi(
@@ -28,15 +32,19 @@ class LayananBlockchain {
   }
 
   // Tambahkan Blok Transaksi Baru ke dalam Blockchain (Pencatatan Pembayaran)
-  static Future<ModelBlokTransaksi> catatTransaksiBaru({
+  static Future<ModelBlokTransaksi?> catatTransaksiBaru({
     required String idPesanan,
     required String namaPembeli,
     required int totalHargaIdr,
     required List<String> daftarBarang,
     required String negaraAsal,
   }) async {
+    if (!Hive.isBoxOpen(LayananBasisDataLokal.namaKotakBlockchain)) {
+      return null;
+    }
     await inisialisasiBlockchain();
     final List<ModelBlokTransaksi> rantai = LayananBasisDataLokal.ambilRantaiBlockchain();
+    if (rantai.isEmpty) return null;
     final ModelBlokTransaksi blokTerakhir = rantai.last;
 
     final int indeksBaru = blokTerakhir.indeks + 1;
@@ -62,6 +70,9 @@ class LayananBlockchain {
 
   // Verifikasi Validitas dan Integritas Rantai Blok (Mendeteksi Manipulasi Data)
   static bool verifikasiIntegritasBlockchain() {
+    if (!Hive.isBoxOpen(LayananBasisDataLokal.namaKotakBlockchain)) {
+      return true;
+    }
     final List<ModelBlokTransaksi> rantai = LayananBasisDataLokal.ambilRantaiBlockchain();
     if (rantai.length <= 1) return true;
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
@@ -34,6 +35,7 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
   final TextEditingController _pesanController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   Timer? _timerChatRealtime;
+  StreamSubscription<ModelPesanChat>? _subChatStream;
 
   String _peranAktif = 'PEMESAN'; // 'PEMESAN' atau 'TRAVELER'
   String _namaPengirimAktif = 'Pemesan';
@@ -67,13 +69,22 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
   void initState() {
     super.initState();
     _muatProfilPengguna();
+    LayananSinkronisasiOnline.mulaiKoneksiStreamRealtime();
     LayananSinkronisasiOnline.sinkronkanChatOnline();
     LayananSinkronisasiOnline.pemicuPembaruanChat.addListener(_padaPembaruanChat);
-    _timerChatRealtime = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (mounted) {
-        LayananSinkronisasiOnline.sinkronkanChatOnline();
-      }
+
+    // Continuous 2-Way Keep-Alive Stream listener (Poin 2 TODO)
+    _subChatStream = LayananSinkronisasiOnline.streamPesanChat.listen((pesan) {
+      _padaPembaruanChat();
     });
+
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      _timerChatRealtime = Timer.periodic(const Duration(seconds: 2), (_) {
+        if (mounted) {
+          LayananSinkronisasiOnline.sinkronkanChatOnline();
+        }
+      });
+    }
   }
 
   void _padaPembaruanChat() {
@@ -143,6 +154,7 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
   @override
   void dispose() {
     _timerChatRealtime?.cancel();
+    _subChatStream?.cancel();
     LayananSinkronisasiOnline.pemicuPembaruanChat.removeListener(_padaPembaruanChat);
     _pesanController.dispose();
     _scrollController.dispose();
@@ -161,7 +173,7 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
     });
   }
 
-  // Kirim Pesan Nyata ke Database Hive & Picu Notifikasi ke Lawan Bicara
+  // Kirim Pesan Nyata ke Database Hive & Picu Notifikasi ke Lawan Bicara (Poin 2 TODO)
   Future<void> _kirimPesanNyata(
     String teks, {
     String? targetIdPemesan,
@@ -179,8 +191,8 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
         ? (targetNamaPemesan ?? _threadTerpilih?.namaPemesan ?? 'Pemesan Terdaftar')
         : _namaPengirimAktif;
 
-    // Poin 3: Pastikan senderId dan receiverId tersimpan akurat
-    final String senderId = _userIdAktif;
+    // Poin 3 & Poin 2 TODO: Pastikan senderId dan receiverId dua arah tersimpan presisi
+    final String senderId = adalahTraveler ? '2' : _userIdAktif;
     final String receiverId = adalahTraveler ? targetId : '2';
 
     final pesanBaru = ModelPesanChat(
@@ -294,20 +306,6 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
               );
               await LayananSinkronisasiOnline.sinkronkanChatOnline();
               if (mounted) setState(() {});
-            },
-          ),
-          IconButton(
-            tooltip: 'Ganti Peran Pengirim (Uji Coba/Demo)',
-            icon: const Icon(Icons.swap_horiz_rounded),
-            onPressed: () async {
-              final profil = await LayananOtentikasi.ambilProfilAktif();
-              final namaAsli = profil?.nama ?? 'Pemesan Terdaftar';
-              setState(() {
-                _peranAktif = 'PEMESAN';
-                _namaPengirimAktif = namaAsli;
-                _threadTerpilih = null;
-              });
-              _tampilkanSnack('Sekarang beralih ke peran PEMESAN ($namaAsli)');
             },
           ),
         ],
@@ -595,21 +593,6 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
               );
               await LayananSinkronisasiOnline.sinkronkanChatOnline();
               if (mounted) setState(() {});
-            },
-          ),
-          IconButton(
-            tooltip: 'Ganti Peran Pengirim (Uji Coba/Demo)',
-            icon: const Icon(Icons.swap_horiz_rounded),
-            onPressed: () async {
-              final semuaAkun = await LayananOtentikasi.ambilSemuaAkun();
-              final akunTraveler = semuaAkun.where((a) => a.peran == 'TRAVELER').toList();
-              final namaTravelerDemo = akunTraveler.isNotEmpty ? akunTraveler.first.nama : 'Traveler';
-              setState(() {
-                _peranAktif = 'TRAVELER';
-                _namaPengirimAktif = namaTravelerDemo;
-                _threadTerpilih = null;
-              });
-              _tampilkanSnack('Sekarang beralih ke peran TRAVELER ($namaTravelerDemo ✈️)');
             },
           ),
         ],
@@ -918,31 +901,6 @@ class _HalamanChatTravelerState extends State<HalamanChatTraveler> {
               );
               await LayananSinkronisasiOnline.sinkronkanChatOnline();
               if (mounted) setState(() {});
-            },
-          ),
-          IconButton(
-            tooltip: 'Ganti Peran Pengirim (Uji Coba/Demo)',
-            icon: const Icon(Icons.swap_horiz_rounded),
-            onPressed: () async {
-              final profil = await LayananOtentikasi.ambilProfilAktif();
-              final semuaAkun = await LayananOtentikasi.ambilSemuaAkun();
-              final akunTraveler = semuaAkun.where((a) => a.peran == 'TRAVELER').toList();
-              final namaTravelerDemo = akunTraveler.isNotEmpty ? akunTraveler.first.nama : 'Traveler';
-              final namaAsli = profil?.nama ?? 'Pemesan Terdaftar';
-              setState(() {
-                if (_peranAktif == 'PEMESAN') {
-                  _peranAktif = 'TRAVELER';
-                  _namaPengirimAktif = namaTravelerDemo;
-                  _threadTerpilih = null; // Menuju inbox
-                } else {
-                  _peranAktif = 'PEMESAN';
-                  _namaPengirimAktif = namaAsli;
-                  _threadTerpilih = null;
-                }
-              });
-              _tampilkanSnack(
-                'Sekarang Anda mengetik sebagai: ${_peranAktif == "TRAVELER" ? "Traveler ($namaTravelerDemo ✈️)" : namaAsli}',
-              );
             },
           ),
         ],

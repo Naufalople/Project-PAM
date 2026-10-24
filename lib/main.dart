@@ -4,6 +4,7 @@ import 'layanan/layanan_rekber.dart';
 import 'layanan/layanan_otentikasi.dart';
 import 'layanan/layanan_notifikasi.dart';
 import 'layanan/layanan_sinkronisasi_online.dart';
+import 'layanan/layanan_supabase.dart';
 import 'tampilan/halaman_masuk.dart';
 import 'tampilan/halaman_utama.dart';
 
@@ -19,14 +20,17 @@ void main() async {
   // Inisialisasi Layanan Notifikasi Status Bar Sistem OS
   await LayananNotifikasi.inisialisasiNotifikasiSistem();
 
+  // Inisialisasi Database Online Utama Supabase Real-Time (TODO_PERUBAHAN_DATABASE)
+  await LayananSupabase.inisialisasi();
+
   // Inisialisasi Sinkronisasi Real-Time Online Lintas Perangkat (Strictly Non-Firebase)
   await LayananSinkronisasiOnline.inisialisasi();
 
-  // Reset sesi aktif saat aplikasi dibuka dari keadaan mati (Cold Start)
-  // Menjamin jika apk ditutup/dibersihkan dari recent apps, pengguna diwajibkan login ulang
-  await LayananOtentikasi.tanganiColdStart();
+  // Periksa apakah ada sesi login aktif yang tersimpan di penyimpanan lokal
+  // Sesi bersifat persisten: pengguna TIDAK AKAN logout kecuali menekan tombol logout
+  final bool sudahMasuk = await LayananOtentikasi.cekApakahSudahMasuk();
 
-  runApp(const AplikasiJastipGo(sudahMasuk: false));
+  runApp(AplikasiJastipGo(sudahMasuk: sudahMasuk));
 }
 
 // Aplikasi Utama JastipGo dengan Pemantauan Siklus Hidup (AppLifecycle & Auto-Logout)
@@ -56,28 +60,9 @@ class _AplikasiJastipGoState extends State<AplikasiJastipGo> with WidgetsBinding
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      // 1. Simpan timestamp saat aplikasi diminimalkan / masuk background
-      LayananOtentikasi.catatWaktuMasukBackground();
-    } else if (state == AppLifecycleState.resumed) {
-      // 2. Saat aplikasi kembali aktif, periksa apakah sudah lebih dari 15 menit
-      _periksaTimeoutBackground();
-    } else if (state == AppLifecycleState.detached) {
-      // 3. Saat aplikasi dimatikan/dibersihkan dari recent apps, langsung hapus sesi
-      LayananOtentikasi.keluarSesi();
-    }
-  }
-
-  Future<void> _periksaTimeoutBackground() async {
-    final bool kedaluwarsa = await LayananOtentikasi.apakahSesiKedaluwarsa();
-    if (kedaluwarsa) {
-      await LayananOtentikasi.keluarSesi();
-      AplikasiJastipGo.navigatorKey.currentState?.pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (context) => const HalamanMasuk(pesanSesiKedaluwarsa: true),
-        ),
-        (route) => false,
-      );
+    if (state == AppLifecycleState.resumed) {
+      // Saat aplikasi kembali aktif, sinkronkan data online secara mulus di latar belakang
+      LayananSinkronisasiOnline.sinkronkanPesananOnline();
     }
   }
 

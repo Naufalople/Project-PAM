@@ -35,9 +35,8 @@ class LayananOtentikasi {
   static const String _kunciDestinasiTraveler = 'destinasi_aktif_traveler';
   static const int batasMenitTimeout = 15;
 
-  // Endpoint REST API Publik untuk Sinkronisasi Akun Lintas Perangkat
-  static const String _urlOnlineApi = 'https://api.restful-api.dev/objects';
-  static const String _idRegistriOnline = 'ff808181a09d98f701a153a07864177d';
+  // Endpoint Database Online Firebase Realtime Database
+  static const String _urlFirebaseDatabase = 'https://opank-ople-default-rtdb.firebaseio.com';
 
   // Fungsi enkripsi password menggunakan algoritma SHA-256 (Non-Firebase)
   static String enkripsiPassword(String passwordTeksBiasa) {
@@ -159,6 +158,49 @@ class LayananOtentikasi {
         }
       } catch (_) {}
     }
+
+    // Sinkronkan akun dari Firebase Realtime Database ke penyimpanan lokal
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      try {
+        final resOnline = await http
+            .get(Uri.parse('$_urlFirebaseDatabase/users.json'))
+            .timeout(const Duration(seconds: 4));
+        if (resOnline.statusCode == 200 && resOnline.body.isNotEmpty && resOnline.body != 'null') {
+          final dynamic decoded = jsonDecode(resOnline.body);
+          if (decoded is Map) {
+            final List<ModelPengguna> listOnline = [];
+            for (var u in decoded.values) {
+              if (u is Map) {
+                final userObj = ModelPengguna.dariJson(Map<String, dynamic>.from(u));
+                listOnline.add(userObj);
+                await LayananBasisDataLokal.simpanAkunHive(userObj.keJson());
+              }
+            }
+            if (listOnline.isNotEmpty) {
+              final String? currentPrefs = prefs.getString(_kunciDaftarAkun);
+              List<ModelPengguna> existing = [];
+              if (currentPrefs != null && currentPrefs.isNotEmpty) {
+                try {
+                  final List<dynamic> dec = jsonDecode(currentPrefs);
+                  existing = dec.map((it) => ModelPengguna.dariJson(it)).toList();
+                } catch (_) {}
+              }
+              if (existing.isEmpty) {
+                existing = List<ModelPengguna>.from(_akunBawaanDatabase);
+              }
+              for (var onl in listOnline) {
+                if (!existing.any((e) => e.email.toLowerCase() == onl.email.toLowerCase())) {
+                  existing.add(onl);
+                }
+              }
+              final stringJson = jsonEncode(existing.map((e) => e.keJson()).toList());
+              await prefs.setString(_kunciDaftarAkun, stringJson);
+              await _simpanCadanganEksternal(stringJson);
+            }
+          }
+        }
+      } catch (_) {}
+    }
   }
 
   // Ambil semua akun dari database lokal
@@ -182,90 +224,58 @@ class LayananOtentikasi {
   }
 
   // ========================================================
-  // SINKRONISASI DATABASE ONLINE (REST API LINTAS PERANGKAT)
+  // SINKRONISASI DATABASE ONLINE (FIREBASE REALTIME DATABASE)
   // ========================================================
 
-  // Sinkronisasi akun terenkripsi (SHA-256) ke database online REST API
+  // Sinkronisasi akun terenkripsi (SHA-256) ke Firebase Realtime Database
   static Future<void> _sinkronkanKeDatabaseOnline(ModelPengguna akun) async {
+    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+      return;
+    }
     try {
-      // 1. Simpan akun individual ke endpoint REST API
-      await http.post(
-        Uri.parse(_urlOnlineApi),
+      final safeKey = akun.email.toLowerCase().replaceAll('.', '_').replaceAll('@', '_at_');
+      final payload = {
+        'id': akun.id,
+        'nama': akun.nama,
+        'email': akun.email,
+        'passwordHash': akun.passwordHash,
+        'nomorTelepon': akun.nomorTelepon,
+        'fotoProfil': akun.fotoProfil,
+        'peran': akun.peran,
+        'lokasi': akun.lokasi,
+        'terdaftarPada': DateTime.now().toIso8601String(),
+      };
+
+      // Simpan akun individual ke Firebase Realtime Database
+      await http.put(
+        Uri.parse('$_urlFirebaseDatabase/users/$safeKey.json'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'name': 'JASTIPGO_USER_${akun.email.toLowerCase()}',
-          'data': {
-            'id': akun.id,
-            'nama': akun.nama,
-            'email': akun.email,
-            'passwordHash': akun.passwordHash,
-            'nomorTelepon': akun.nomorTelepon,
-            'fotoProfil': akun.fotoProfil,
-            'peran': akun.peran,
-            'lokasi': akun.lokasi,
-            'terdaftarPada': DateTime.now().toIso8601String(),
-          },
-        }),
+        body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 4));
-
-      // 2. Perbarui registri pengguna global online agar dapat divalidasi dari perangkat lain
-      final resGet = await http
-          .get(Uri.parse('$_urlOnlineApi/$_idRegistriOnline'))
-          .timeout(const Duration(seconds: 4));
-
-      if (resGet.statusCode == 200) {
-        final Map<String, dynamic> body = jsonDecode(resGet.body);
-        final Map<String, dynamic> data =
-            body['data'] is Map<String, dynamic> ? Map<String, dynamic>.from(body['data']) : {};
-        List<dynamic> users = data['users'] is List ? List<dynamic>.from(data['users']) : [];
-
-        // Hapus duplikat akun lama bila ada
-        users.removeWhere((u) {
-          if (u is Map) return u['email']?.toString().toLowerCase() == akun.email.toLowerCase();
-          return false;
-        });
-
-        users.add({
-          'id': akun.id,
-          'nama': akun.nama,
-          'email': akun.email,
-          'passwordHash': akun.passwordHash,
-          'nomorTelepon': akun.nomorTelepon,
-          'fotoProfil': akun.fotoProfil,
-          'peran': akun.peran,
-          'lokasi': akun.lokasi,
-        });
-
-        await http.put(
-          Uri.parse('$_urlOnlineApi/$_idRegistriOnline'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'name': 'JASTIPGO_GLOBAL_USERS',
-            'data': {'users': users},
-          }),
-        ).timeout(const Duration(seconds: 4));
-      }
     } catch (_) {
       // Toleransi offline: jika tidak ada koneksi internet, akun tetap aman di penyimpanan lokal
     }
   }
 
-  // Validasi kredensial login langsung ke REST API Online secara real-time
+  // Validasi kredensial login langsung ke Firebase Realtime Database secara real-time
   static Future<ModelPengguna?> _validasiLoginOnline(String emailInput, String hashInput) async {
+    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+      return null;
+    }
     try {
       final res = await http
-          .get(Uri.parse('$_urlOnlineApi/$_idRegistriOnline'))
+          .get(Uri.parse('$_urlFirebaseDatabase/users.json'))
           .timeout(const Duration(seconds: 4));
 
-      if (res.statusCode == 200) {
-        final Map<String, dynamic> body = jsonDecode(res.body);
-        if (body['data'] != null && body['data']['users'] != null) {
-          final List<dynamic> users = body['data']['users'];
-          for (var item in users) {
+      if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
+        final dynamic decoded = jsonDecode(res.body);
+        if (decoded is Map) {
+          for (var item in decoded.values) {
             if (item is Map) {
-              final String itemEmail = item['email']?.toString().toLowerCase() ?? '';
+              final String itemEmail = item['email']?.toString().toLowerCase().trim() ?? '';
+              final String itemNama = item['nama']?.toString().toLowerCase().trim() ?? '';
               final String itemHash = item['passwordHash']?.toString() ?? '';
-              if (itemEmail == emailInput && itemHash == hashInput) {
+              if ((itemEmail == emailInput || itemNama == emailInput) && itemHash == hashInput) {
                 return ModelPengguna(
                   id: item['id'] is int
                       ? item['id']
@@ -330,30 +340,29 @@ class LayananOtentikasi {
       }
     }
 
-    // 3. Query Pengecekan Duplikasi Email ke Database Online REST API Global Registry
-    try {
-      final resGet = await http
-          .get(Uri.parse('$_urlOnlineApi/$_idRegistriOnline'))
-          .timeout(const Duration(seconds: 4));
+    // 3. Query Pengecekan Duplikasi Email ke Database Online Firebase Realtime Database
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      try {
+        final resGet = await http
+            .get(Uri.parse('$_urlFirebaseDatabase/users.json'))
+            .timeout(const Duration(seconds: 4));
 
-      if (resGet.statusCode == 200) {
-        final Map<String, dynamic> body = jsonDecode(resGet.body);
-        final Map<String, dynamic> data =
-            body['data'] is Map<String, dynamic> ? Map<String, dynamic>.from(body['data']) : {};
-        if (data['users'] is List) {
-          final List<dynamic> users = data['users'];
-          for (var u in users) {
-            if (u is Map) {
-              final String em = u['email']?.toString().trim().toLowerCase() ?? '';
-              if (em == cleanEmail) {
-                return 'Email sudah terdaftar, silakan gunakan email lain';
+        if (resGet.statusCode == 200 && resGet.body.isNotEmpty && resGet.body != 'null') {
+          final dynamic decoded = jsonDecode(resGet.body);
+          if (decoded is Map) {
+            for (var u in decoded.values) {
+              if (u is Map) {
+                final String em = u['email']?.toString().trim().toLowerCase() ?? '';
+                if (em == cleanEmail) {
+                  return 'Email sudah terdaftar, silakan gunakan email lain';
+                }
               }
             }
           }
         }
+      } catch (_) {
+        // Toleransi offline: jika tidak ada koneksi internet, validasi tetap aman oleh database lokal
       }
-    } catch (_) {
-      // Toleransi offline: jika tidak ada koneksi internet, validasi tetap aman oleh database lokal
     }
 
     return null; // Email baru dan belum terdaftar di database (Username/Nama boleh sama)
@@ -414,7 +423,7 @@ class LayananOtentikasi {
     await LayananBasisDataLokal.simpanAkunHive(akunBaru.keJson());
 
     // d. Sinkronkan Kredensial Terenkripsi ke Database Online / REST API Backend
-    _sinkronkanKeDatabaseOnline(akunBaru);
+    await _sinkronkanKeDatabaseOnline(akunBaru);
 
     // e. Langsung aktifkan sesi untuk akun yang baru didaftarkan ini
     await _simpanSesi(akunBaru);
@@ -517,33 +526,16 @@ class LayananOtentikasi {
     await prefs.remove(_kunciWaktuMasukBackground);
   }
 
-  // Periksa apakah sesi telah kedaluwarsa setelah berada di background >= 15 menit
+  // Sesi Login Persisten: Pengguna TIDAK AKAN logout otomatis saat aplikasi di background
   static Future<bool> apakahSesiKedaluwarsa() async {
-    final bool sedangMasuk = await cekApakahSudahMasuk();
-    if (!sedangMasuk) return false;
-
-    final prefs = await SharedPreferences.getInstance();
-    final int? waktuLatar = prefs.getInt(_kunciWaktuMasukBackground);
-    if (waktuLatar == null) return false;
-
-    final int selisihMilidetik = DateTime.now().millisecondsSinceEpoch - waktuLatar;
-    final int batasMilidetik = batasMenitTimeout * 60 * 1000;
-
-    if (selisihMilidetik >= batasMilidetik) {
-      return true;
-    } else {
-      // Masih dalam batas waktu aman (< 15 menit), reset catatan waktu latar
-      await hapusWaktuMasukBackground();
-      return false;
-    }
+    return false;
   }
 
-  // Tangani Cold Start: Saat aplikasi dimatikan/dibersihkan dari recent apps lalu dibuka kembali,
-  // wajibkan login ulang sesuai ketentuan poin 1
+  // Sesi Login Persisten: Pengguna TIDAK AKAN logout saat aplikasi ditutup/cold start,
+  // tanda pengenal sesi tersimpan aman di penyimpanan lokal (SharedPreferences).
+  // Pengguna HANYA logout jika menekan tombol Logout secara eksplisit.
   static Future<void> tanganiColdStart() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kunciToken);
-    await prefs.remove(_kunciWaktuMasukBackground);
+    // No-op agar sesi login tetap tersimpan persisten secara offline
   }
 
   // Masuk Cepat dengan Sensor Sidik Jari (Biometrik)

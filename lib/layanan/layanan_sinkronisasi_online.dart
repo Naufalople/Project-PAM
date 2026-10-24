@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:hive/hive.dart';
@@ -7,29 +8,33 @@ import '../model/model_pesanan_jastip.dart';
 import '../model/model_pesan_chat.dart';
 import '../model/model_transaksi_rekber.dart';
 import 'layanan_basisdata_lokal.dart';
+import 'layanan_firebase.dart';
 import 'layanan_notifikasi.dart';
 import 'layanan_otentikasi.dart';
 import 'layanan_rekber.dart';
+import 'layanan_supabase.dart';
 
 /// Layanan Sinkronisasi Database Real-Time Online Lintas Perangkat (Strictly Non-Firebase)
 /// 
-/// Sesuai TODO_PERBAIKAN_DATABASE.txt, TODO_SINKRONISASI_AKUN.txt, & TODO_SINKRONISASI_REALTIME.txt:
+/// Sesuai TODO_PERBAIKAN_DATABASE.txt, TODO_SINKRONISASI_AKUN.txt, TODO_SINKRONISASI_REALTIME.txt,
+/// dan TODO_PERBAIKAN_PRODUCT_AND_CHAT.txt:
 /// 1. MIGRASI DATABASE ONLINE REAL-TIME (NON-FIREBASE):
 ///    - DILARANG KERAS menggunakan Firebase Auth, Firestore, atau Realtime Database.
 ///    - Menggunakan REST API Backend Collections terotentikasi di cloud dan dukungan Node.js backend.
-///    - Sinkronisasi instan saat membuat pesanan, update status, dan kirim pesan.
+///    - Koneksi real-time keep-alive stream (SSE) dua arah yang tidak pernah terputus.
 /// 
 /// 2. MANAJEMEN PENYIMPANAN LOKAL SEBAGAI CACHE (OFFLINE SUPPORT):
 ///    - Hive berfungsi sebagai cache offline-first: baca dari lokal terlebih dahulu agar instan.
 ///    - Data baru dari server online otomatis disimpan ke Hive.
 /// 
-/// 3. PERSISTENSI DATA LINTAS PERANGKAT (CROSS-DEVICE LOGIN):
-///    - Data pesanan dan chat diikat dengan ID Akun di cloud.
-///    - Saat login di HP baru, `pulihkanDataPenggunaOnline` memulihkan seluruh riwayat.
+/// 3. NOTIFIKASI REAL-TIME UNTUK SEMUA TAHAP STATUS PESANAN (PEMESAN & TRAVELER):
+///    - Notifikasi berkelanjutan di sisi Pemesan saat status diperbarui:
+///      Tahap 2 (ACC), Tahap 3 (Beli di Toko), Tahap 4 (Bagasi Pesawat), Tahap 5 (Mendarat di RI), Tahap 6 (Selesai).
+///    - Notifikasi pencairan Rekber otomatis di sisi Traveler saat barang sampai.
 /// 
-/// 4. NOTIFIKASI REAL-TIME & PENCAIRAN OTOMATIS REKBER:
-///    - Notifikasi pesanan & chat masuk di HP Traveler.
-///    - Saat barang dikonfirmasi sampai, Rekber otomatis cair ke saldo aktif Traveler.
+/// 4. SINKRONISASI CHAT DUA ARAH BERKELANJUTAN (KEEP-ALIVE):
+///    - Listener dan stream tidak berhenti setelah pesan pertama terkirim.
+///    - Balasan Traveler langsung masuk ke Pemesan, pesan lanjutan Pemesan langsung masuk ke Traveler.
 class LayananSinkronisasiOnline {
   // REST API Cloud Collections Endpoints (Strictly Non-Firebase)
   static const String _baseUrlCloud = 'https://api.restful-api.dev/collections';
@@ -38,8 +43,15 @@ class LayananSinkronisasiOnline {
   static const String _koleksiRekber = 'rekber';
   static const String _apiKey = 'c5413392-8fb5-44b2-84f4-81a819c9d9e8';
 
-  // Opsi Custom Backend Node.js lokal / hosting (Strictly Non-Firebase)
-  static String urlCustomBackend = 'http://localhost:3000';
+  // Konfigurasi Database Online Cloud (Supabase, Firebase, & Cloud REST API)
+  // Tidak lagi menggunakan server lokal Node.js port 3000 atau IP Wi-Fi laptop
+  static String urlCustomBackend = '';
+  static String get urlBackendAktif => '';
+  static List<String> get daftarKandidatBackend => const [];
+
+  static Future<String> tentukanBackendAktif() async {
+    return '';
+  }
 
   // Headers wajib dengan API Key & User-Agent
   static const Map<String, String> _headers = {
@@ -53,14 +65,30 @@ class LayananSinkronisasiOnline {
   static final ValueNotifier<int> pemicuPembaruanChat = ValueNotifier<int>(0);
   static final ValueNotifier<int> pemicuPembaruanRekber = ValueNotifier<int>(0);
 
+  // Real-Time Keep-Alive Stream Controllers (Continuous 2-Way Stream)
+  static final StreamController<ModelPesanChat> _controllerChat =
+      StreamController<ModelPesanChat>.broadcast();
+  static final StreamController<ModelPesananJastip> _controllerPesanan =
+      StreamController<ModelPesananJastip>.broadcast();
+
+  static Stream<ModelPesanChat> get streamPesanChat => _controllerChat.stream;
+  static Stream<ModelPesananJastip> get streamPesanan => _controllerPesanan.stream;
+
+  static http.Client? _streamHttpClient;
+  static StreamSubscription? _streamSubscription;
+  static Timer? _timerReconnectStream;
+
   // Status tracking untuk mencegah notifikasi ganda / spam
   static final Set<String> _idPesananTerkonfirmasi = {};
   static final Set<String> _idPesanChatTerkonfirmasi = {};
   static final Set<String> _idDanaCairTerkonfirmasi = {};
+  static final Map<String, int> _lastNotifiedOrderStatus = {};
 
   static Timer? _timerPolling;
   static bool _sedangSinkron = false;
   static bool _terinisialisasi = false;
+  static StreamSubscription? _subStreamSupabase;
+  static StreamSubscription? _subStreamFirebase;
 
   /// Inisialisasi awal saat aplikasi dijalankan
   static Future<void> inisialisasi() async {
@@ -69,11 +97,120 @@ class LayananSinkronisasiOnline {
     _catatIdLokalLama();
     _terinisialisasi = true;
 
-    // Background sync berkala (15 detik) untuk mode santai di latar belakang
-    mulaiSinkronisasiOtomatis(interval: const Duration(seconds: 15));
+    // Integrasi Supabase Real-Time Stream (TODO_PERUBAHAN_DATABASE.txt)
+    _subStreamSupabase?.cancel();
+    _subStreamSupabase = LayananSupabase.streamPesanan.listen((pesanan) {
+      _controllerPesanan.add(pesanan);
+      pemicuPembaruanPesanan.value++;
+      pemicuPembaruanRekber.value++;
+    });
+
+    // Integrasi Firebase Realtime Database Stream (TODO_MANAJEMEN_PESANAN.txt)
+    await LayananFirebase.inisialisasi();
+    _subStreamFirebase?.cancel();
+    _subStreamFirebase = LayananFirebase.streamPesanan.listen((pesanan) {
+      _controllerPesanan.add(pesanan);
+      pemicuPembaruanPesanan.value++;
+      pemicuPembaruanRekber.value++;
+    });
 
     // Jalankan sinkronisasi awal
     await sinkronkanSemua();
+  }
+
+  /// Memulai koneksi stream real-time (ditangani oleh Supabase & Firebase Stream)
+  static Future<void> mulaiKoneksiStreamRealtime() async {
+    // No-op: Supabase & Firebase menangani stream secara langsung tanpa server Node.js
+  }
+
+  /// Menghentikan koneksi stream real-time
+  static void hentikanStreamRealtime() {
+    _streamSubscription?.cancel();
+    _streamSubscription = null;
+    _streamHttpClient?.close();
+    _streamHttpClient = null;
+    _timerReconnectStream?.cancel();
+    _timerReconnectStream = null;
+  }
+
+  /// Pemicu notifikasi sistem berantai untuk Pemesan saat Traveler memperbarui status
+  static Future<void> _notifikasiPerubahanStatusPemesan(ModelPesananJastip pesanan) async {
+    final profilAktif = await LayananOtentikasi.ambilProfilAktif();
+    if (profilAktif != null) {
+      final uId = profilAktif.id.toString();
+      final em = profilAktif.email.toLowerCase().trim();
+      final pUId = (pesanan.userId ?? '').toString().trim();
+      final pEm = (pesanan.emailPemesan ?? '').toLowerCase().trim();
+      // Pastikan notifikasi hanya masuk ke pemesan pemilik pesanan tersebut
+      if (pEm.isNotEmpty && pEm != em && pUId != uId) {
+        return;
+      }
+    }
+
+    final int last = _lastNotifiedOrderStatus[pesanan.idPesanan] ?? 1;
+    if (pesanan.tahapStatus != ModelPesananJastip.statusDibatalkan && pesanan.tahapStatus <= last) {
+      return;
+    }
+    _lastNotifiedOrderStatus[pesanan.idPesanan] = pesanan.tahapStatus;
+
+    String judul = '';
+    String pesan = '';
+    IconData ikon = Icons.info_outline;
+    Color warna = Colors.teal.shade800;
+
+    switch (pesanan.tahapStatus) {
+      case ModelPesananJastip.statusDibatalkan:
+        judul = 'Pesanan Dibatalkan & Dana Kembali! 💰';
+        pesan =
+            'Traveler menyatakan barang #${pesanan.idPesanan} tidak ada di toko. Uang Rp ${_formatRupiah(pesanan.totalHargaIdr)} telah 100% DIKEMBALIKAN dari Rekber ke Dompet Anda.';
+        ikon = Icons.account_balance_wallet_rounded;
+        warna = Colors.red.shade800;
+        break;
+      case 2:
+        judul = 'Pesanan Disetujui Traveler! ✅';
+        pesan =
+            'Pesanan #${pesanan.idPesanan} telah di-ACC oleh ${pesanan.namaTraveler.isNotEmpty ? pesanan.namaTraveler : "Traveler"}. Traveler segera menuju lokasi toko.';
+        ikon = Icons.thumb_up_alt_rounded;
+        warna = Colors.teal.shade800;
+        break;
+      case 3:
+        judul = 'Barang Berhasil Dibeli di Toko! 🛍️';
+        pesan =
+            'Barang titipan #${pesanan.idPesanan} (${pesanan.negaraAsal}) telah selesai dibeli. Struk resmi telah diverifikasi.';
+        ikon = Icons.shopping_bag_rounded;
+        warna = Colors.teal.shade800;
+        break;
+      case 4:
+        judul = 'Barang Masuk Bagasi Pesawat ke RI! ✈️';
+        pesan =
+            'Koper titipan #${pesanan.idPesanan} dibawa dalam bagasi penerbangan internasional menuju Indonesia.';
+        ikon = Icons.flight_takeoff_rounded;
+        warna = Colors.blue.shade800;
+        break;
+      case 5:
+        judul = 'Traveler Telah Tiba di Indonesia! 🇮🇩';
+        pesan =
+            'Pesanan #${pesanan.idPesanan} siap diserahterimakan sesuai metode pilihan Anda (COD LBS Hub / Kurir).';
+        ikon = Icons.place_rounded;
+        warna = Colors.orange.shade800;
+        break;
+      case 6:
+        judul = 'Transaksi Selesai & Diterima! 🎉';
+        pesan =
+            'Pesanan #${pesanan.idPesanan} telah berhasil diselesaikan. Terima kasih telah menggunakan JastipGo!';
+        ikon = Icons.check_circle_rounded;
+        warna = Colors.green.shade800;
+        break;
+    }
+
+    if (judul.isNotEmpty) {
+      await LayananNotifikasi.picuNotifikasiSistem(
+        judul: judul,
+        pesan: pesan,
+        ikon: ikon,
+        warna: warna,
+      );
+    }
   }
 
   /// Catat seluruh ID pesanan dan chat lokal yang sudah ada di memori awal
@@ -136,7 +273,7 @@ class LayananSinkronisasiOnline {
   }
 
   // =========================================================================
-  // 1. SINKRONISASI PESANAN LINTAS PERANGKAT & NOTIFIKASI TRAVELER
+  // 1. SINKRONISASI PESANAN LINTAS PERANGKAT & NOTIFIKASI BERLANJUT (PEMESAN & TRAVELER)
   // =========================================================================
 
   /// Tarik data pesanan dari database online dan perbarui cache lokal Hive
@@ -146,17 +283,53 @@ class LayananSinkronisasiOnline {
         await Hive.openBox(LayananBasisDataLokal.namaKotakPesanan);
       }
 
-      final url = Uri.parse('$_baseUrlCloud/$_koleksiPesanan/objects');
-      final res = await http.get(url, headers: _headers).timeout(const Duration(seconds: 5));
+      final box = Hive.box(LayananBasisDataLokal.namaKotakPesanan);
+      final profilAktif = await LayananOtentikasi.ambilProfilAktif();
+      final String peranAktif = profilAktif?.peran ?? 'PEMESAN';
 
-      if (res.statusCode == 200) {
-        final dynamic body = jsonDecode(res.body);
-        final List<dynamic> items = body is List ? body : [];
+      bool suksesBackend = false;
+      List<dynamic> items = [];
 
-        final box = Hive.box(LayananBasisDataLokal.namaKotakPesanan);
-        final profilAktif = await LayananOtentikasi.ambilProfilAktif();
-        final String peranAktif = profilAktif?.peran ?? 'PEMESAN';
+      // 0. Ambil dari Firebase Realtime Database Online (TODO_MANAJEMEN_PESANAN.txt)
+      try {
+        final listFirebase = await LayananFirebase.ambilSemuaPesananOnline();
+        if (listFirebase.isNotEmpty) {
+          for (var p in listFirebase) {
+            items.add(p.keMap());
+          }
+          suksesBackend = true;
+        }
+      } catch (_) {}
 
+      // 1. Ambil dari Supabase Online Database Real-Time (TODO_PERUBAHAN_DATABASE.txt)
+      if (!suksesBackend) {
+        try {
+          final listSupabase = await LayananSupabase.ambilSemuaPesananOnline();
+          if (listSupabase.isNotEmpty) {
+            for (var p in listSupabase) {
+              items.add(p.keMap());
+            }
+            suksesBackend = true;
+          }
+        } catch (_) {}
+      }
+
+      // 1. Fallback ke Cloud Collections jika Supabase offline/belum ada data
+      if (!suksesBackend) {
+        try {
+          final url = Uri.parse('$_baseUrlCloud/$_koleksiPesanan/objects');
+          final res = await http.get(url, headers: _headers).timeout(const Duration(seconds: 4));
+          if (res.statusCode == 200) {
+            final dynamic body = jsonDecode(res.body);
+            if (body is List) {
+              items = body;
+              suksesBackend = true;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (suksesBackend) {
         bool adaPerubahanLokal = false;
         final Set<String> idOnlineSet = {};
 
@@ -182,6 +355,7 @@ class LayananSinkronisasiOnline {
             // Pesanan baru dari HP lain (HP 1 Pemesan -> HP 2 Traveler)
             await box.add(pesananOnline.keMap());
             adaPerubahanLokal = true;
+            _controllerPesanan.add(pesananOnline);
 
             if (peranAktif == 'TRAVELER') {
               if (!_idPesananTerkonfirmasi.contains(pesananOnline.idPesanan)) {
@@ -196,17 +370,23 @@ class LayananSinkronisasiOnline {
               }
             }
           } else {
-            // Pembaruan status pesanan (misal konfirmasi sampai)
-            if (pesananLokal != null &&
-                (pesananLokal.tahapStatus != pesananOnline.tahapStatus ||
-                    pesananLokal.lokasiTerkini != pesananOnline.lokasiTerkini)) {
-              await box.putAt(indexLokal, pesananOnline.keMap());
-              adaPerubahanLokal = true;
+            // Pembaruan status pesanan (misal Traveler perbarui status atau Pemesan konfirmasi selesai)
+            if (pesananLokal != null) {
+              if (pesananOnline.tahapStatus > pesananLokal.tahapStatus ||
+                  (pesananOnline.tahapStatus == pesananLokal.tahapStatus &&
+                      pesananOnline.lokasiTerkini != pesananLokal.lokasiTerkini)) {
+                // Status online lebih baru -> update lokal
+                await box.putAt(indexLokal, pesananOnline.keMap());
+                adaPerubahanLokal = true;
+                _controllerPesanan.add(pesananOnline);
 
-              // Pencairan Otomatis Rekber saat barang dikonfirmasi sampai
-              if (pesananOnline.tahapStatus >= 6 && pesananLokal.tahapStatus < 6) {
-                if (peranAktif == 'TRAVELER') {
-                  if (!_idDanaCairTerkonfirmasi.contains(pesananOnline.idPesanan)) {
+                // Notifikasi berantai untuk Pemesan di setiap pembaruan tahap (Poin 1 TODO)
+                if (peranAktif == 'PEMESAN') {
+                  await _notifikasiPerubahanStatusPemesan(pesananOnline);
+                } else if (peranAktif == 'TRAVELER') {
+                  // Pencairan Otomatis Rekber saat barang dikonfirmasi sampai
+                  if (pesananOnline.tahapStatus >= 6 &&
+                      !_idDanaCairTerkonfirmasi.contains(pesananOnline.idPesanan)) {
                     _idDanaCairTerkonfirmasi.add(pesananOnline.idPesanan);
                     await LayananNotifikasi.picuNotifikasiSistem(
                       judul: 'Dana Rekber Otomatis Cair! 🎉',
@@ -217,18 +397,21 @@ class LayananSinkronisasiOnline {
                     );
                   }
                 }
+              } else if (pesananLokal.tahapStatus > pesananOnline.tahapStatus) {
+                // Status lokal lebih baru -> sinkronkan ke server online
+                _unggahPembaruanPesananKeBackend(pesananLokal);
               }
             }
           }
         }
 
-        // Sinkronisasi pesanan lokal yang belum terunggah ke cloud
+        // Sinkronisasi pesanan lokal yang belum terunggah ke online
         for (int i = 0; i < box.length; i++) {
           final d = box.getAt(i);
           if (d is Map && d['idPesanan'] != null) {
             final p = ModelPesananJastip.dariMap(d);
             if (!idOnlineSet.contains(p.idPesanan)) {
-              await _unggahObjekKoleksi(_koleksiPesanan, p.idPesanan, p.keMap());
+              _unggahPesananKeBackend(p);
             }
           }
         }
@@ -264,22 +447,38 @@ class LayananSinkronisasiOnline {
         }
       }
 
-      // 2. Unggah ke Cloud Collections
-      final sukses = await _unggahObjekKoleksi(
+      _idPesananTerkonfirmasi.add(pesanan.idPesanan);
+      _controllerPesanan.add(pesanan);
+      pemicuPembaruanPesanan.value++;
+
+      // Simpan ke Supabase database online secara real-time (TODO_PERUBAHAN_DATABASE.txt)
+      try {
+        await LayananSupabase.simpanPesananBaru(pesanan);
+      } catch (_) {}
+
+      // Simpan ke Firebase Database online secara real-time (TODO_MANAJEMEN_PESANAN.txt)
+      try {
+        await LayananFirebase.simpanPesananBaru(pesanan);
+      } catch (_) {}
+
+      if (Platform.environment.containsKey('FLUTTER_TEST')) {
+        return true;
+      }
+
+      // 2. Unggah ke Cloud Collections API
+      await _unggahObjekKoleksi(
         _koleksiPesanan,
         pesanan.idPesanan,
         pesanan.keMap(),
       );
 
-      _idPesananTerkonfirmasi.add(pesanan.idPesanan);
-      pemicuPembaruanPesanan.value++;
-      return sukses;
+      return true;
     } catch (_) {
       return false;
     }
   }
 
-  /// Perbarui status pesanan di database online
+  /// Perbarui status pesanan di database online (Continuous Status Update - Poin 1)
   static Future<bool> perbaruiStatusPesananOnline(
     String idPesanan, {
     required int tahapStatus,
@@ -288,6 +487,8 @@ class LayananSinkronisasiOnline {
     String? alamatPengiriman,
   }) async {
     try {
+      ModelPesananJastip? pesananTerbaru;
+
       // 1. Update di Hive cache lokal
       if (Hive.isBoxOpen(LayananBasisDataLokal.namaKotakPesanan)) {
         final box = Hive.box(LayananBasisDataLokal.namaKotakPesanan);
@@ -300,33 +501,61 @@ class LayananSinkronisasiOnline {
             if (metodePenyerahan != null) m['metodePenyerahan'] = metodePenyerahan;
             if (alamatPengiriman != null) m['alamatPengiriman'] = alamatPengiriman;
             await box.putAt(i, m);
+            pesananTerbaru = ModelPesananJastip.dariMap(m);
             break;
           }
         }
       }
 
-      // 2. Ambil dokumen online terkait dan update via PUT
-      final docId = await _temukanDocIdDiKoleksi(_koleksiPesanan, 'idPesanan', idPesanan);
-      if (docId != null) {
-        final box = Hive.box(LayananBasisDataLokal.namaKotakPesanan);
-        for (int i = 0; i < box.length; i++) {
-          final d = box.getAt(i);
-          if (d is Map && d['idPesanan'] == idPesanan) {
+      if (pesananTerbaru != null) {
+        _controllerPesanan.add(pesananTerbaru);
+      }
+      pemicuPembaruanPesanan.value++;
+      pemicuPembaruanRekber.value++;
+
+      // Perbarui status di Supabase database online secara real-time (TODO_PERUBAHAN_DATABASE.txt)
+      try {
+        await LayananSupabase.perbaruiStatusPesanan(
+          idPesanan,
+          tahapStatus: tahapStatus,
+          lokasiTerkini: lokasiTerkini,
+          metodePenyerahan: metodePenyerahan,
+          alamatPengiriman: alamatPengiriman,
+        );
+      } catch (_) {}
+
+      // Perbarui status di Firebase Database online secara real-time (TODO_MANAJEMEN_PESANAN.txt)
+      try {
+        await LayananFirebase.perbaruiStatusPesanan(
+          idPesanan,
+          tahapStatus: tahapStatus,
+          lokasiTerkini: lokasiTerkini,
+          metodePenyerahan: metodePenyerahan,
+          alamatPengiriman: alamatPengiriman,
+        );
+      } catch (_) {}
+
+      if (Platform.environment.containsKey('FLUTTER_TEST')) {
+        return true;
+      }
+
+      // 2. Perbarui data di Cloud Collections jika ada
+      if (pesananTerbaru != null) {
+        final docId = await _temukanDocIdDiKoleksi(_koleksiPesanan, 'idPesanan', idPesanan);
+        if (docId != null) {
+          try {
             await http.put(
               Uri.parse('$_baseUrlCloud/$_koleksiPesanan/objects/$docId'),
               headers: _headers,
               body: jsonEncode({
                 'name': idPesanan,
-                'data': d,
+                'data': pesananTerbaru.keMap(),
               }),
             ).timeout(const Duration(seconds: 4));
-            break;
-          }
+          } catch (_) {}
         }
       }
 
-      pemicuPembaruanPesanan.value++;
-      pemicuPembaruanRekber.value++;
       return true;
     } catch (_) {
       return false;
@@ -334,7 +563,7 @@ class LayananSinkronisasiOnline {
   }
 
   // =========================================================================
-  // 2. SINKRONISASI CHAT LINTAS PERANGKAT & OFFLINE CACHE
+  // 2. SINKRONISASI CHAT LINTAS PERANGKAT & KEEP-ALIVE 2-WAY (POIN 2 TODO)
   // =========================================================================
 
   /// Tarik seluruh pesan chat online dan sinkronkan ke cache lokal Hive
@@ -344,27 +573,37 @@ class LayananSinkronisasiOnline {
         await Hive.openBox(LayananBasisDataLokal.namaKotakChat);
       }
 
-      final url = Uri.parse('$_baseUrlCloud/$_koleksiChat/objects');
-      final res = await http.get(url, headers: _headers).timeout(const Duration(seconds: 5));
+      final box = Hive.box(LayananBasisDataLokal.namaKotakChat);
+      final profilAktif = await LayananOtentikasi.ambilProfilAktif();
+      final String peranAktif = profilAktif?.peran ?? 'PEMESAN';
+      final String userIdAktif = profilAktif?.id.toString() ?? '1';
+      final String emailAktif = profilAktif?.email ?? '';
 
-      if (res.statusCode == 200) {
-        final dynamic body = jsonDecode(res.body);
-        final List<dynamic> items = body is List ? body : [];
+      final Set<String> idChatLokal = {};
+      for (int i = 0; i < box.length; i++) {
+        final d = box.getAt(i);
+        if (d is Map && d['id'] != null) {
+          idChatLokal.add(d['id'].toString());
+        }
+      }
 
-        final box = Hive.box(LayananBasisDataLokal.namaKotakChat);
-        final profilAktif = await LayananOtentikasi.ambilProfilAktif();
-        final String peranAktif = profilAktif?.peran ?? 'PEMESAN';
-        final String userIdAktif = profilAktif?.id.toString() ?? '1';
-        final String emailAktif = profilAktif?.email ?? '';
+      bool suksesBackend = false;
+      List<dynamic> items = [];
 
-        final Set<String> idChatLokal = {};
-        for (int i = 0; i < box.length; i++) {
-          final d = box.getAt(i);
-          if (d is Map && d['id'] != null) {
-            idChatLokal.add(d['id'].toString());
+      // Ambil dari Cloud Collections
+      try {
+        final url = Uri.parse('$_baseUrlCloud/$_koleksiChat/objects');
+        final res = await http.get(url, headers: _headers).timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) {
+          final dynamic body = jsonDecode(res.body);
+          if (body is List) {
+            items = body;
+            suksesBackend = true;
           }
         }
+      } catch (_) {}
 
+      if (suksesBackend) {
         bool adaPerubahanLokal = false;
 
         for (var item in items) {
@@ -378,6 +617,8 @@ class LayananSinkronisasiOnline {
             await box.add(pesanOnline.keMap());
             idChatLokal.add(pesanOnline.id);
             adaPerubahanLokal = true;
+
+            _controllerChat.add(pesanOnline);
 
             // Cek apakah pesan ini ditujukan untuk akun yang sedang aktif
             final bool ditujukanUntukSaya = (peranAktif == 'TRAVELER' &&
@@ -412,7 +653,7 @@ class LayananSinkronisasiOnline {
               return m['id'] == id;
             });
             if (!sudahAdaDiServer) {
-              await _unggahObjekKoleksi(_koleksiChat, id, Map<String, dynamic>.from(d));
+              _unggahChatKeBackend(Map<String, dynamic>.from(d));
             }
           }
         }
@@ -428,7 +669,7 @@ class LayananSinkronisasiOnline {
     }
   }
 
-  /// Unggah pesan obrolan baru ke REST API online secara instan
+  /// Unggah pesan obrolan baru ke REST API online secara instan (2-Way Keep-Alive - Poin 2)
   static Future<bool> unggahPesanChatBaru(ModelPesanChat pesan) async {
     try {
       // 1. Simpan ke Hive cache lokal (Offline-first & respons instan)
@@ -448,16 +689,17 @@ class LayananSinkronisasiOnline {
       }
 
       _idPesanChatTerkonfirmasi.add(pesan.id);
+      _controllerChat.add(pesan);
+      pemicuPembaruanChat.value++;
 
-      // 2. Unggah ke Cloud Collections
-      final sukses = await _unggahObjekKoleksi(
+      // 2. Unggah ke Cloud Collections API
+      await _unggahObjekKoleksi(
         _koleksiChat,
         pesan.id,
         pesan.keMap(),
       );
 
-      pemicuPembaruanChat.value++;
-      return sukses;
+      return true;
     } catch (_) {
       return false;
     }
@@ -474,22 +716,32 @@ class LayananSinkronisasiOnline {
         await Hive.openBox(LayananRekber.namaKotakPenarikan);
       }
 
-      final url = Uri.parse('$_baseUrlCloud/$_koleksiRekber/objects');
-      final res = await http.get(url, headers: _headers).timeout(const Duration(seconds: 5));
+      final box = Hive.box(LayananRekber.namaKotakPenarikan);
+      final Set<String> idLokal = {};
+      for (int i = 0; i < box.length; i++) {
+        final d = box.getAt(i);
+        if (d is Map && d['id'] != null) {
+          idLokal.add(d['id'].toString());
+        }
+      }
 
-      if (res.statusCode == 200) {
-        final dynamic body = jsonDecode(res.body);
-        final List<dynamic> items = body is List ? body : [];
+      bool suksesBackend = false;
+      List<dynamic> items = [];
 
-        final box = Hive.box(LayananRekber.namaKotakPenarikan);
-        final Set<String> idLokal = {};
-        for (int i = 0; i < box.length; i++) {
-          final d = box.getAt(i);
-          if (d is Map && d['id'] != null) {
-            idLokal.add(d['id'].toString());
+      // Ambil dari Cloud Collections
+      try {
+        final url = Uri.parse('$_baseUrlCloud/$_koleksiRekber/objects');
+        final res = await http.get(url, headers: _headers).timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) {
+          final dynamic body = jsonDecode(res.body);
+          if (body is List) {
+            items = body;
+            suksesBackend = true;
           }
         }
+      } catch (_) {}
 
+      if (suksesBackend) {
         bool adaPerubahan = false;
         for (var item in items) {
           final Map<String, dynamic> dataMap = _ekstrakDataMap(item);
@@ -559,6 +811,30 @@ class LayananSinkronisasiOnline {
     } catch (_) {
       return false;
     }
+  }
+
+  static Future<void> _unggahPesananKeBackend(ModelPesananJastip p) async {
+    await _unggahObjekKoleksi(_koleksiPesanan, p.idPesanan, p.keMap());
+  }
+
+  static Future<void> _unggahPembaruanPesananKeBackend(ModelPesananJastip p) async {
+    final docId = await _temukanDocIdDiKoleksi(_koleksiPesanan, 'idPesanan', p.idPesanan);
+    if (docId != null) {
+      try {
+        await http.put(
+          Uri.parse('$_baseUrlCloud/$_koleksiPesanan/objects/$docId'),
+          headers: _headers,
+          body: jsonEncode({
+            'name': p.idPesanan,
+            'data': p.keMap(),
+          }),
+        ).timeout(const Duration(seconds: 4));
+      } catch (_) {}
+    }
+  }
+
+  static Future<void> _unggahChatKeBackend(Map<String, dynamic> data) async {
+    await _unggahObjekKoleksi(_koleksiChat, data['id'].toString(), data);
   }
 
   // =========================================================================

@@ -15,6 +15,8 @@ import 'package:project_pam/layanan/layanan_sensor.dart';
 import 'package:project_pam/layanan/layanan_rekber.dart';
 import 'package:project_pam/layanan/layanan_notifikasi.dart';
 import 'package:project_pam/layanan/layanan_sinkronisasi_online.dart';
+import 'package:project_pam/layanan/layanan_supabase.dart';
+import 'package:project_pam/layanan/layanan_firebase.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -23,6 +25,7 @@ import 'package:project_pam/tampilan/halaman_profil.dart';
 import 'package:project_pam/tampilan/halaman_fitur_cerdas.dart';
 import 'package:project_pam/tampilan/halaman_dompet_rekber.dart';
 import 'package:project_pam/tampilan/halaman_status_pesanan.dart';
+import 'package:project_pam/tampilan/halaman_kelola_pesanan_traveler.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +42,8 @@ void main() {
     await Hive.openBox(LayananBasisDataLokal.namaKotakPengguna);
     await Hive.openBox(LayananBasisDataLokal.namaKotakChat);
     await Hive.openBox(LayananRekber.namaKotakPenarikan);
+    await Hive.openBox(LayananRekber.namaKotakDompetPemesan);
+    await Hive.openBox(LayananRekber.namaKotakRiwayatRefund);
   });
 
   tearDownAll(() async {
@@ -54,6 +59,15 @@ void main() {
     await Hive.box(LayananBasisDataLokal.namaKotakVoucher).clear();
     await Hive.box(LayananBasisDataLokal.namaKotakChat).clear();
     await Hive.box(LayananRekber.namaKotakPenarikan).clear();
+    await Hive.box(LayananRekber.namaKotakDompetPemesan).clear();
+    await Hive.box(LayananRekber.namaKotakRiwayatRefund).clear();
+  });
+
+  tearDown(() async {
+    LayananSinkronisasiOnline.hentikanStreamRealtime();
+    LayananSinkronisasiOnline.hentikanSinkronisasiOtomatis();
+    LayananSupabase.hentikanStream();
+    LayananFirebase.hentikanStream();
   });
 
   group('Uji Fitur 1: AI Recommendation Engine Berbasis Data Pembelian', () {
@@ -879,7 +893,7 @@ void main() {
       expect(teksJarak, endsWith('km'));
     });
 
-    testWidgets('3. Verifikasi UI: OpenStreetMap, 2 Marker, Tanpa Polyline, dan Tombol Navigasi GMaps', (tester) async {
+    testWidgets('3. Verifikasi UI: OpenStreetMap, 2 Marker, In-App Routing Polyline, & Navigasi Mandiri', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: HalamanPetaLokasi(indeksTitikAwal: 0),
@@ -896,10 +910,7 @@ void main() {
       final tileLayer = tester.widget<TileLayer>(tileLayerFinder);
       expect(tileLayer.urlTemplate, equals('https://tile.openstreetmap.org/{z}/{x}/{y}.png'));
 
-      // Verifikasi 3: TIDAK ADA PolylineLayer (DILARANG menggambar garis polyline di peta)
-      expect(find.byType(PolylineLayer), findsNothing);
-
-      // Verifikasi 4: MarkerLayer HANYA memiliki tepat 2 marker (Marker A Pengguna & Marker B Titik COD)
+      // Verifikasi 3: MarkerLayer memiliki 2 marker (Marker A Pengguna & Marker B Titik COD)
       final markerLayerFinder = find.byType(MarkerLayer);
       expect(markerLayerFinder, findsOneWidget);
       final markerLayer = tester.widget<MarkerLayer>(markerLayerFinder);
@@ -907,11 +918,31 @@ void main() {
       expect(markerLayer.markers.any((m) => m.key == const ValueKey('marker_pengguna_lbs')), isTrue);
       expect(markerLayer.markers.any((m) => m.key == const ValueKey('marker_titik_cod')), isTrue);
 
-      // Verifikasi 5: Teks jarak ke titik temu tampil di UI
+      // Verifikasi 4: Teks jarak ke titik temu tampil di UI
       expect(find.textContaining('Jarak ke titik temu:'), findsOneWidget);
 
-      // Verifikasi 6: Tombol besar Arahkan dengan Google Maps hadir
-      expect(find.text('Arahkan dengan Google Maps'), findsOneWidget);
+      // Verifikasi 5: Sesuai TODO_PERUBAHAN_DATABASE.txt, tombol Navigasi Mandiri In-App hadir
+      final tombolNavigasi = find.byKey(const ValueKey('tombol_navigasi_in_app'));
+      expect(tombolNavigasi, findsOneWidget);
+      expect(find.text('Mulai Navigasi Langsung di Aplikasi'), findsOneWidget);
+
+      // Verifikasi 6: Tekan Mulai Navigasi -> PolylineLayer rute OSRM muncul & Banner Navigasi Aktif
+      await tester.ensureVisible(tombolNavigasi);
+      await tester.tap(tombolNavigasi);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.byType(PolylineLayer), findsOneWidget);
+      expect(find.text('NAVIGASI IN-APP AKTIF 🧭'), findsOneWidget);
+      expect(find.text('Hentikan Navigasi'), findsOneWidget);
+
+      // Verifikasi 7: Tekan Hentikan Navigasi -> Mode navigasi berhenti
+      await tester.ensureVisible(find.text('Hentikan Navigasi'));
+      await tester.tap(find.text('Hentikan Navigasi'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('Mulai Navigasi Langsung di Aplikasi'), findsOneWidget);
     });
   });
 
@@ -1034,6 +1065,9 @@ void main() {
       expect(find.text('Pelacakan Status Pesanan'), findsOneWidget);
       expect(find.text('Lihat Status Proteksi Rekber'), findsNothing);
       expect(find.byIcon(Icons.shield_outlined), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
     });
   });
 
@@ -1366,6 +1400,624 @@ void main() {
       expect(LayananSinkronisasiOnline.pemicuPembaruanChat.value, greaterThan(0));
     });
   });
+
+  group('Uji TODO_PERBAIKAN_PRODUCT_AND_CHAT: Pembaruan Status Berkelanjutan & Chat Dua Arah Keep-Alive', () {
+    test('1. PEMBARUAN STATUS PESANAN BERKELANJUTAN (Tahap 2 hingga 6) TANPA MACET', () async {
+      await Hive.box(LayananBasisDataLokal.namaKotakPesanan).clear();
+
+      // Buat pesanan baru tahap 1
+      final pesananAwal = ModelPesananJastip(
+        idPesanan: 'PO-TEST-CONTINUOUS-01',
+        userId: '1',
+        emailPemesan: 'ahmad@jastipgo.com',
+        namaPemesan: 'Ahmad Dahlan',
+        tanggal: DateTime.now(),
+        negaraAsal: 'Jepang 🇯🇵',
+        namaTraveler: 'Dimas Pratama',
+        lokasiTerkini: 'Pesanan Diterima Sistem',
+        tahapStatus: 1,
+        metodePenyerahan: 'COD LBS',
+        totalHargaIdr: 150000,
+        daftarBarang: [],
+      );
+      await LayananBasisDataLokal.tambahPesanan(pesananAwal);
+
+      final List<int> statusStreamDiterima = [];
+      final sub = LayananSinkronisasiOnline.streamPesanan.listen((p) {
+        if (p.idPesanan == 'PO-TEST-CONTINUOUS-01') {
+          statusStreamDiterima.add(p.tahapStatus);
+        }
+      });
+
+      // Simulasi Traveler memperbarui status bertahap:
+      // Tahap 2: ACC oleh Traveler
+      await LayananBasisDataLokal.perbaruiStatusPesanan(
+        'PO-TEST-CONTINUOUS-01',
+        tahapStatus: 2,
+        lokasiTerkini: 'Toko Resmi di Ginza (Traveler Menuju Lokasi)',
+        peranPengguna: 'TRAVELER',
+      );
+
+      // Tahap 3: Selesai Dibeli di Toko
+      await LayananBasisDataLokal.perbaruiStatusPesanan(
+        'PO-TEST-CONTINUOUS-01',
+        tahapStatus: 3,
+        lokasiTerkini: 'Kantong Belanja Traveler (Struk Resmi Diverifikasi)',
+        peranPengguna: 'TRAVELER',
+      );
+
+      // Tahap 4: Masuk Bagasi Pesawat ke RI
+      await LayananBasisDataLokal.perbaruiStatusPesanan(
+        'PO-TEST-CONTINUOUS-01',
+        tahapStatus: 4,
+        lokasiTerkini: 'Bagasi Pesawat Internasional ke Indonesia ✈️',
+        peranPengguna: 'TRAVELER',
+      );
+
+      // Tahap 5: Mendarat di Indonesia
+      await LayananBasisDataLokal.perbaruiStatusPesanan(
+        'PO-TEST-CONTINUOUS-01',
+        tahapStatus: 5,
+        lokasiTerkini: 'Mendarat di Indonesia (Siap COD) 🇮🇩',
+        peranPengguna: 'TRAVELER',
+      );
+
+      // Tahap 6: Diterima Pemesan (Selesai)
+      await LayananBasisDataLokal.perbaruiStatusPesanan(
+        'PO-TEST-CONTINUOUS-01',
+        tahapStatus: 6,
+        lokasiTerkini: 'Telah Diterima Pemesan (Selesai) 🎉',
+        peranPengguna: 'TRAVELER',
+      );
+
+      await Future.delayed(const Duration(milliseconds: 100));
+      await sub.cancel();
+
+      // Verifikasi status akhir di database lokal Hive
+      final pesananAkhir = LayananBasisDataLokal.ambilSemuaPesanan().firstWhere(
+        (p) => p.idPesanan == 'PO-TEST-CONTINUOUS-01',
+      );
+      expect(pesananAkhir.tahapStatus, equals(6));
+      expect(pesananAkhir.apakahSudahDiterima, isTrue);
+
+      // Verifikasi bahwa seluruh tahap status berhasil dialirkan ke stream tanpa terputus
+      expect(statusStreamDiterima, contains(2));
+      expect(statusStreamDiterima, contains(3));
+      expect(statusStreamDiterima, contains(4));
+      expect(statusStreamDiterima, contains(5));
+      expect(statusStreamDiterima, contains(6));
+    });
+
+    test('2. SINKRONISASI CHAT DUA ARAH BERKELANJUTAN (Multi-Turn Keep-Alive Stream)', () async {
+      await Hive.box(LayananBasisDataLokal.namaKotakChat).clear();
+
+      final List<ModelPesanChat> pesanStreamDiterima = [];
+      final sub = LayananSinkronisasiOnline.streamPesanChat.listen((m) {
+        pesanStreamDiterima.add(m);
+      });
+
+      // Turn 1: Pemesan kirim pesan pertama
+      await LayananBasisDataLokal.kirimPesanChat(ModelPesanChat(
+        id: 'MSG-TURN-01',
+        pengirim: 'PEMESAN',
+        teks: 'Halo Traveler, apakah koper masih ada sisa?',
+        waktu: DateTime.now(),
+        senderId: '1',
+        receiverId: '2',
+        idPemesan: 'pemesan@jastipgo.com',
+        userId: '1',
+        namaPengirim: 'Pemesan',
+      ));
+
+      // Turn 1: Balasan Traveler pertama
+      await LayananBasisDataLokal.kirimPesanChat(ModelPesanChat(
+        id: 'MSG-TURN-02',
+        pengirim: 'TRAVELER',
+        teks: 'Halo! Masih ada sisa 5 kg kak.',
+        waktu: DateTime.now().add(const Duration(seconds: 1)),
+        senderId: '2',
+        receiverId: 'pemesan@jastipgo.com',
+        idPemesan: 'pemesan@jastipgo.com',
+        userId: 'pemesan@jastipgo.com',
+        namaPengirim: 'Dimas Pratama',
+      ));
+
+      // Turn 2: Pemesan kirim pesan lanjutan kedua (tidak boleh macet)
+      await LayananBasisDataLokal.kirimPesanChat(ModelPesanChat(
+        id: 'MSG-TURN-03',
+        pengirim: 'PEMESAN',
+        teks: 'Bagus kak, titip 2 box Tokyo Banana ya.',
+        waktu: DateTime.now().add(const Duration(seconds: 2)),
+        senderId: '1',
+        receiverId: '2',
+        idPemesan: 'pemesan@jastipgo.com',
+        userId: '1',
+        namaPengirim: 'Pemesan',
+      ));
+
+      // Turn 2: Balasan Traveler kedua
+      await LayananBasisDataLokal.kirimPesanChat(ModelPesanChat(
+        id: 'MSG-TURN-04',
+        pengirim: 'TRAVELER',
+        teks: 'Siap kak, sudah saya catat di keranjang belanja saya.',
+        waktu: DateTime.now().add(const Duration(seconds: 3)),
+        senderId: '2',
+        receiverId: 'pemesan@jastipgo.com',
+        idPemesan: 'pemesan@jastipgo.com',
+        userId: 'pemesan@jastipgo.com',
+        namaPengirim: 'Dimas Pratama',
+      ));
+
+      // Turn 3: Pemesan kirim pesan lanjutan ketiga
+      await LayananBasisDataLokal.kirimPesanChat(ModelPesanChat(
+        id: 'MSG-TURN-05',
+        pengirim: 'PEMESAN',
+        teks: 'Terima kasih banyak kak!',
+        waktu: DateTime.now().add(const Duration(seconds: 4)),
+        senderId: '1',
+        receiverId: '2',
+        idPemesan: 'pemesan@jastipgo.com',
+        userId: '1',
+        namaPengirim: 'Pemesan',
+      ));
+
+      await Future.delayed(const Duration(milliseconds: 100));
+      await sub.cancel();
+
+      // Verifikasi stream tidak terputus dan menerima seluruh 5 pesan interaksi dua arah
+      expect(pesanStreamDiterima.length, equals(5));
+      expect(pesanStreamDiterima[0].id, equals('MSG-TURN-01'));
+      expect(pesanStreamDiterima[1].id, equals('MSG-TURN-02'));
+      expect(pesanStreamDiterima[2].id, equals('MSG-TURN-03'));
+      expect(pesanStreamDiterima[3].id, equals('MSG-TURN-04'));
+      expect(pesanStreamDiterima[4].id, equals('MSG-TURN-05'));
+
+      // Verifikasi pembacaan dari Hive cache
+      final obrolanLokal = LayananBasisDataLokal.ambilPesanChatUntukPemesan(
+        'pemesan@jastipgo.com',
+        userId: '1',
+      );
+      expect(obrolanLokal.length, equals(5));
+    });
+  });
+
+  group('Uji TODO_PERUBAHAN_DATABASE: Integrasi Supabase Real-Time & Navigasi In-App LBS', () {
+    test('1. API perutean OSRM (ambilRuteOsrm) dan fallback interpolasi rute geometris in-app', () async {
+      final titik = await HalamanPetaLokasi.ambilRuteOsrm(
+        latAwal: -7.7602,
+        lngAwal: 110.4089,
+        latTujuan: -7.7928,
+        lngTujuan: 110.3658,
+      );
+
+      expect(titik.isNotEmpty, isTrue);
+      expect(titik.first.latitude, closeTo(-7.7602, 0.001));
+      expect(titik.first.longitude, closeTo(110.4089, 0.001));
+      expect(titik.last.latitude, closeTo(-7.7928, 0.001));
+      expect(titik.last.longitude, closeTo(110.3658, 0.001));
+    });
+
+    test('2. Sisi Traveler: Pemesan membuat pesanan baru -> tersinkronisasi via Supabase Real-Time', () async {
+      final pesananBaruSupabase = ModelPesananJastip(
+        idPesanan: 'ORD-SUPA-001',
+        userId: '1',
+        emailPemesan: 'pemesan@jastipgo.com',
+        namaPemesan: 'Rafi Ahmad',
+        tanggal: DateTime.now(),
+        negaraAsal: 'Jepang 🇯🇵',
+        namaTraveler: 'Dimas Pratama',
+        lokasiTerkini: 'Menunggu konfirmasi Traveler di Tokyo',
+        tahapStatus: 1,
+        totalHargaIdr: 120000,
+        daftarBarang: [
+          ModelItemPesanan(
+            namaBarang: 'Matcha KitKat Tokyo Special',
+            fotoUrl: '',
+            negara: 'Jepang 🇯🇵',
+            namaToko: 'Don Quijote Shinjuku',
+            jumlah: 1,
+            hargaIdr: 120000,
+          ),
+        ],
+      );
+
+      final List<ModelPesananJastip> pesananDiterimaTraveler = [];
+      final sub = LayananSupabase.streamPesanan.listen((p) {
+        pesananDiterimaTraveler.add(p);
+      });
+
+      // Simpan pesanan baru via Supabase
+      final sukses = await LayananSupabase.simpanPesananBaru(pesananBaruSupabase);
+      expect(sukses, isTrue);
+
+      await Future.delayed(const Duration(milliseconds: 100));
+      await sub.cancel();
+
+      expect(pesananDiterimaTraveler.any((p) => p.idPesanan == 'ORD-SUPA-001'), isTrue);
+      expect(pesananDiterimaTraveler.firstWhere((p) => p.idPesanan == 'ORD-SUPA-001').tahapStatus, equals(1));
+    });
+
+    test('3. Sisi Pemesan: Traveler perbarui status pengiriman (Tahap 2 s/d 6) -> ter-update real-time via Supabase', () async {
+      // Pastikan pesanan terdaftar di basis data lokal & Supabase
+      final pesananAwal = ModelPesananJastip(
+        idPesanan: 'ORD-SUPA-001',
+        userId: '1',
+        emailPemesan: 'pemesan@jastipgo.com',
+        namaPemesan: 'Rafi Ahmad',
+        tanggal: DateTime.now(),
+        negaraAsal: 'Jepang 🇯🇵',
+        namaTraveler: 'Dimas Pratama',
+        lokasiTerkini: 'Menunggu konfirmasi Traveler di Tokyo',
+        tahapStatus: 1,
+        totalHargaIdr: 120000,
+        daftarBarang: [
+          ModelItemPesanan(
+            namaBarang: 'Matcha KitKat Tokyo Special',
+            fotoUrl: '',
+            negara: 'Jepang 🇯🇵',
+            namaToko: 'Don Quijote Shinjuku',
+            jumlah: 1,
+            hargaIdr: 120000,
+          ),
+        ],
+      );
+      await LayananBasisDataLokal.tambahPesanan(pesananAwal);
+
+      final List<int> riwayatTahapStatus = [];
+      final sub = LayananSupabase.streamPesanan.listen((p) {
+        if (p.idPesanan == 'ORD-SUPA-001') {
+          riwayatTahapStatus.add(p.tahapStatus);
+        }
+      });
+
+      // Traveler ACC pesanan (Tahap 2)
+      await LayananBasisDataLokal.perbaruiStatusPesanan(
+        'ORD-SUPA-001',
+        tahapStatus: 2,
+        lokasiTerkini: 'Pesanan telah di-ACC. Traveler bersiap menuju toko di Tokyo.',
+        peranPengguna: 'TRAVELER',
+      );
+
+      // Traveler beli barang di toko (Tahap 3)
+      await LayananBasisDataLokal.perbaruiStatusPesanan(
+        'ORD-SUPA-001',
+        tahapStatus: 3,
+        lokasiTerkini: 'Barang titipan telah dibeli di Don Quijote Shinjuku.',
+        peranPengguna: 'TRAVELER',
+      );
+
+      // Barang masuk bagasi pesawat (Tahap 4)
+      await LayananBasisDataLokal.perbaruiStatusPesanan(
+        'ORD-SUPA-001',
+        tahapStatus: 4,
+        lokasiTerkini: 'Barang masuk bagasi penerbangan Haneda - Jakarta.',
+        peranPengguna: 'TRAVELER',
+      );
+
+      // Traveler tiba di Indonesia (Tahap 5)
+      await LayananBasisDataLokal.perbaruiStatusPesanan(
+        'ORD-SUPA-001',
+        tahapStatus: 5,
+        lokasiTerkini: 'Traveler tiba di Hub JastipGo Kampus UPN Condongcatur.',
+        peranPengguna: 'TRAVELER',
+      );
+
+      // Pemesan konfirmasi pesanan diterima (Tahap 6 - Transaksi Selesai)
+      await LayananBasisDataLokal.konfirmasiPesananDiterima('ORD-SUPA-001');
+
+      await Future.delayed(const Duration(milliseconds: 100));
+      await sub.cancel();
+
+      expect(riwayatTahapStatus.contains(2), isTrue);
+      expect(riwayatTahapStatus.contains(3), isTrue);
+      expect(riwayatTahapStatus.contains(4), isTrue);
+      expect(riwayatTahapStatus.contains(5), isTrue);
+      expect(riwayatTahapStatus.contains(6), isTrue);
+
+      // Verifikasi di Hive lokal cache
+      final pesananLokal = LayananBasisDataLokal.ambilSemuaPesanan()
+          .firstWhere((p) => p.idPesanan == 'ORD-SUPA-001');
+      expect(pesananLokal.tahapStatus, equals(6));
+      expect(pesananLokal.apakahSudahDiterima, isTrue);
+    });
+  });
+
+  group('Uji TODO_MANAJEMEN_PESANAN: Firebase Database, Hak Akses Traveler, & Auto-Refund Rekber', () {
+    test('1. Hak Akses Status Pesanan: Pemesan dilarang memperbarui status, HANYA Traveler yang diizinkan', () async {
+      final pesanan = ModelPesananJastip(
+        idPesanan: 'PO-ROLE-SECURITY-01',
+        userId: 'pemesan_123',
+        emailPemesan: 'pemesan@jastipgo.com',
+        namaPemesan: 'Andi Pemesan',
+        tanggal: DateTime.now(),
+        negaraAsal: 'Jepang 🇯🇵',
+        namaTraveler: 'Budi Traveler',
+        lokasiTerkini: 'Pesanan Dibuat oleh Pemesan',
+        tahapStatus: 1,
+        totalHargaIdr: 150000,
+        metodePenyerahan: 'LBS_COD',
+        daftarBarang: [
+          ModelItemPesanan(
+            namaBarang: 'Matcha KitKat Special Edition',
+            fotoUrl: 'https://example.com/kitkat.jpg',
+            negara: 'Jepang 🇯🇵',
+            namaToko: 'Donki Tokyo',
+            jumlah: 1,
+            hargaIdr: 150000,
+          ),
+        ],
+      );
+      await LayananBasisDataLokal.tambahPesanan(pesanan);
+
+      // Pemesan mencoba mengubah status -> Harus DITOLAK (throw StateError)
+      expect(
+        () async => await LayananBasisDataLokal.perbaruiStatusPesanan(
+          'PO-ROLE-SECURITY-01',
+          tahapStatus: 2,
+          lokasiTerkini: 'Pemesan mencoba menggeser status',
+          peranPengguna: 'PEMESAN',
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      // Pastikan status di database lokal Hive tidak berubah (masih 1)
+      var cekPesanan = LayananBasisDataLokal.ambilSemuaPesanan()
+          .firstWhere((p) => p.idPesanan == 'PO-ROLE-SECURITY-01');
+      expect(cekPesanan.tahapStatus, equals(1));
+
+      // Traveler mengubah status -> Berhasil diizinkan
+      await LayananBasisDataLokal.perbaruiStatusPesanan(
+        'PO-ROLE-SECURITY-01',
+        tahapStatus: 2,
+        lokasiTerkini: 'Pesanan di-ACC oleh Traveler di Tokyo',
+        peranPengguna: 'TRAVELER',
+      );
+
+      cekPesanan = LayananBasisDataLokal.ambilSemuaPesanan()
+          .firstWhere((p) => p.idPesanan == 'PO-ROLE-SECURITY-01');
+      expect(cekPesanan.tahapStatus, equals(2));
+    });
+
+    test('2. Pembatalan Pesanan (Barang Kosong) & Pengembalian Dana Otomatis (Auto-Refund Rekber)', () async {
+      // Siapkan dompet pemesan awal = 0
+      final boxDompet = Hive.box(LayananRekber.namaKotakDompetPemesan);
+      await boxDompet.clear();
+      final boxRefund = Hive.box(LayananRekber.namaKotakRiwayatRefund);
+      await boxRefund.clear();
+
+      final pesanan = ModelPesananJastip(
+        idPesanan: 'PO-REFUND-BARANG-KOSONG',
+        userId: 'pemesan_paris',
+        emailPemesan: 'pemesan@paris.com',
+        namaPemesan: 'Citra Pemesan',
+        tanggal: DateTime.now(),
+        negaraAsal: 'Prancis 🇫🇷',
+        namaTraveler: 'Budi Traveler',
+        lokasiTerkini: 'Traveler mencari di Galeries Lafayette Paris',
+        tahapStatus: 2, // Traveler sudah ACC, dana tertahan di Rekber
+        totalHargaIdr: 2750000,
+        metodePenyerahan: 'LBS_COD',
+        daftarBarang: [
+          ModelItemPesanan(
+            namaBarang: 'Parfum Chanel N°5 Limited Paris',
+            fotoUrl: 'https://example.com/chanel.jpg',
+            negara: 'Prancis 🇫🇷',
+            namaToko: 'Galeries Lafayette',
+            jumlah: 1,
+            hargaIdr: 2750000,
+          ),
+        ],
+      );
+      await LayananBasisDataLokal.tambahPesanan(pesanan);
+
+      // Verifikasi awal: Saldo tertahan di Rekber adalah 2.750.000, dompet pemesan 0
+      expect(LayananRekber.hitungSaldoTertahanRekber(), equals(2750000));
+      expect(LayananRekber.ambilSaldoDompetPemesan(), equals(0));
+
+      // Pemesan dilarang membatalkan dengan fitur pembatalan traveler
+      expect(
+        () async => await LayananBasisDataLokal.batalkanPesananBarangKosong(
+          'PO-REFUND-BARANG-KOSONG',
+          alasan: 'Pemesan iseng batalkan',
+          peranPengguna: 'PEMESAN',
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      // Traveler membatalkan karena stok habis di luar negeri
+      final suksesBatal = await LayananBasisDataLokal.batalkanPesananBarangKosong(
+        'PO-REFUND-BARANG-KOSONG',
+        alasan: 'Stok kosong di seluruh counter Paris',
+        peranPengguna: 'TRAVELER',
+      );
+      expect(suksesBatal, isTrue);
+
+      // Verifikasi status pesanan berubah menjadi Dibatalkan (tahapStatus = 0)
+      final pesananBatal = LayananBasisDataLokal.ambilSemuaPesanan()
+          .firstWhere((p) => p.idPesanan == 'PO-REFUND-BARANG-KOSONG');
+      expect(pesananBatal.tahapStatus, equals(0));
+      expect(pesananBatal.apakahDibatalkan, isTrue);
+      expect(pesananBatal.alasanPembatalan, contains('Stok kosong'));
+
+      // Verifikasi Saldo Tertahan Rekber otomatis berkurang (pesanan batal tidak dihitung tertahan)
+      expect(LayananRekber.hitungSaldoTertahanRekber(), equals(0));
+
+      // Verifikasi Saldo Dompet Pemesan otomatis bertambah 100% (2.750.000)
+      expect(LayananRekber.ambilSaldoDompetPemesan(), equals(2750000));
+
+      // Verifikasi riwayat refund tercatat lengkap
+      final riwayatRefund = LayananRekber.ambilRiwayatRefundPemesan();
+      expect(riwayatRefund.length, equals(1));
+      expect(riwayatRefund.first['idPesanan'], equals('PO-REFUND-BARANG-KOSONG'));
+      expect(riwayatRefund.first['nominal'], equals(2750000));
+      expect(riwayatRefund.first['alasan'], contains('Stok kosong'));
+    });
+
+    test('3. Firebase Realtime Stream: Sinkronisasi pesanan dibatalkan & stream dompet refund', () async {
+      final pesananStreamEvent = <ModelPesananJastip>[];
+      final dompetStreamEvent = <Map<String, dynamic>>[];
+
+      final subPesanan = LayananFirebase.streamPesanan.listen((p) {
+        pesananStreamEvent.add(p);
+      });
+      final subDompet = LayananFirebase.streamDompet.listen((data) {
+        dompetStreamEvent.add(data);
+      });
+
+      final pesanan = ModelPesananJastip(
+        idPesanan: 'PO-STREAM-FIREBASE-01',
+        userId: 'pemesan_sepatu',
+        emailPemesan: 'pemesan@sepatu.com',
+        namaPemesan: 'Dedi Pemesan',
+        tanggal: DateTime.now(),
+        negaraAsal: 'Jepang 🇯🇵',
+        namaTraveler: 'Budi Traveler',
+        lokasiTerkini: 'Shibuya',
+        tahapStatus: 2,
+        totalHargaIdr: 2000000,
+        daftarBarang: [
+          ModelItemPesanan(
+            namaBarang: 'Sneakers Onitsuka Tiger Tokyo',
+            fotoUrl: 'https://example.com/tiger.jpg',
+            negara: 'Jepang 🇯🇵',
+            namaToko: 'Onitsuka Shibuya',
+            jumlah: 1,
+            hargaIdr: 2000000,
+          ),
+        ],
+      );
+      await LayananBasisDataLokal.tambahPesanan(pesanan);
+
+      await LayananBasisDataLokal.batalkanPesananBarangKosong(
+        'PO-STREAM-FIREBASE-01',
+        alasan: 'Ukuran sepatu habis total',
+        peranPengguna: 'TRAVELER',
+      );
+
+      await Future.delayed(const Duration(milliseconds: 100));
+      await subPesanan.cancel();
+      await subDompet.cancel();
+
+      expect(pesananStreamEvent.any((p) => p.idPesanan == 'PO-STREAM-FIREBASE-01' && p.tahapStatus == 0), isTrue);
+      expect(dompetStreamEvent.any((d) => d['nominal'] == 2000000), isTrue);
+    });
+
+    testWidgets('4. UI Sisi Pemesan (HalamanStatusPesanan): Read-Only tanpa tombol ubah status & Kartu Auto-Refund', (tester) async {
+      final profilPemesan = ModelPengguna(
+        id: 1,
+        nama: 'Andi Pemesan',
+        email: 'pemesan@jastipgo.com',
+        passwordHash: 'hash',
+        nomorTelepon: '08123456789',
+        fotoProfil: '',
+        peran: 'PEMESAN',
+      );
+
+      await tester.runAsync(() async {
+        await Hive.box(LayananBasisDataLokal.namaKotakPesanan).clear();
+
+        final pesananBatal = ModelPesananJastip(
+          idPesanan: 'PO-PEMESAN-BATAL-99',
+          userId: '1',
+          emailPemesan: 'pemesan@jastipgo.com',
+          namaPemesan: 'Andi Pemesan',
+          tanggal: DateTime.now(),
+          negaraAsal: 'Jepang 🇯🇵',
+          namaTraveler: 'Dimas Traveler',
+          lokasiTerkini: 'Toko Akihabara, Tokyo 🇯🇵',
+          tahapStatus: 0, // Dibatalkan (Barang kosong)
+          alasanPembatalan: 'Stok barang habis di toko resmi',
+          totalHargaIdr: 1500000,
+          daftarBarang: [
+            ModelItemPesanan(
+              namaBarang: 'Gunpla Perfect Grade Gundam RX-78',
+              fotoUrl: '',
+              negara: 'Jepang 🇯🇵',
+              namaToko: 'Gundam Base',
+              jumlah: 1,
+              hargaIdr: 1500000,
+            ),
+          ],
+        );
+        await LayananBasisDataLokal.tambahPesanan(pesananBatal);
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HalamanStatusPesanan(
+            idPesananTerpilih: 'PO-PEMESAN-BATAL-99',
+            peranOverride: 'PEMESAN',
+            profilOverride: profilPemesan,
+          ),
+        ),
+      );
+      for (int i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      // Pastikan judul halaman muncul
+      expect(find.text('Pelacakan Status Pesanan'), findsOneWidget);
+
+      // Verifikasi banner pembatalan dan auto-refund 100% muncul
+      expect(find.text('PESANAN DIBATALKAN (BARANG KOSONG) ❌'), findsOneWidget);
+      expect(find.text('Lihat Saldo Dompet & Riwayat Refund'), findsOneWidget);
+
+      // Verifikasi Pemesan TIDAK memiliki tombol ubah status (Read-Only)
+      expect(find.text('Update Status Pesanan'), findsNothing);
+      expect(find.text('Sudah Dibeli di Toko'), findsNothing);
+      expect(find.text('Barang Dalam Bagasi Pesawat'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('5. UI Sisi Traveler (HalamanKelolaPesananTraveler): Tombol Pembatalan Barang Kosong Tersedia', (tester) async {
+      await tester.runAsync(() async {
+        await Hive.box(LayananBasisDataLokal.namaKotakPesanan).clear();
+
+        final pesananAktif = ModelPesananJastip(
+          idPesanan: 'PO-TRAVELER-MANAGE-01',
+          userId: 'pemesan_royce',
+          emailPemesan: 'pemesan@royce.com',
+          namaPemesan: 'Eko Pemesan',
+          tanggal: DateTime.now(),
+          negaraAsal: 'Jepang 🇯🇵',
+          namaTraveler: 'traveler_123',
+          lokasiTerkini: 'Traveler berada di New Chitose Airport',
+          tahapStatus: 2, // ACC oleh traveler
+          totalHargaIdr: 250000,
+          daftarBarang: [
+            ModelItemPesanan(
+              namaBarang: 'Cokelat Royce Nama Cocoa',
+              fotoUrl: '',
+              negara: 'Jepang 🇯🇵',
+              namaToko: 'Royce Chitose',
+              jumlah: 1,
+              hargaIdr: 250000,
+            ),
+          ],
+        );
+        await LayananBasisDataLokal.tambahPesanan(pesananAktif);
+      });
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: HalamanKelolaPesananTraveler(
+            idPesananTerpilih: 'PO-TRAVELER-MANAGE-01',
+            peranOverride: 'TRAVELER',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Verifikasi tombol pembatalan pesanan karena barang kosong hadir untuk Traveler
+      expect(find.text('Batalkan Pesanan (Barang Tidak Ada)'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+  });
 }
+
 
 

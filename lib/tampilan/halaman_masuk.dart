@@ -386,7 +386,10 @@ class _HalamanMasukState extends State<HalamanMasuk> {
                                 });
                               },
                               icon: const Icon(Icons.person, size: 14),
-                              label: const Text('Akun Pemesan', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              label: const FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text('Akun Pemesan', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -405,7 +408,10 @@ class _HalamanMasukState extends State<HalamanMasuk> {
                                 });
                               },
                               icon: const Icon(Icons.flight_takeoff, size: 14),
-                              label: const Text('Akun Traveler', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              label: const FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text('Akun Traveler', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              ),
                             ),
                           ),
                         ],

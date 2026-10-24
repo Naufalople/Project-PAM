@@ -104,75 +104,82 @@ class KartuBarang extends StatelessWidget {
             ),
 
             // Detail Informasi Barang
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(6),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            barang.kategori,
+                            style: TextStyle(
+                              color: Colors.blue.shade700,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          barang.namaBarang,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12.0,
+                            height: 1.15,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          LayananKonversi.formatRupiah(barang.estimasiHargaIdr),
+                          style: TextStyle(
+                            color: Colors.teal.shade800,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 13.0,
+                          ),
+                        ),
+                        Text(
+                          LayananKonversi.formatMataUangAsing(barang.hargaAsli, barang.kodeMataUang),
+                          style: const TextStyle(
+                            color: Colors.black45,
+                            fontSize: 10.0,
+                          ),
+                        ),
+                      ],
                     ),
-                    child: Text(
-                      barang.kategori,
-                      style: TextStyle(
-                        color: Colors.blue.shade700,
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    barang.namaBarang,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12.5,
-                      height: 1.15,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    LayananKonversi.formatRupiah(barang.estimasiHargaIdr),
-                    style: TextStyle(
-                      color: Colors.teal.shade800,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 13.5,
-                    ),
-                  ),
-                  Text(
-                    LayananKonversi.formatMataUangAsing(barang.hargaAsli, barang.kodeMataUang),
-                    style: const TextStyle(
-                      color: Colors.black45,
-                      fontSize: 10.5,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 32,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: bisaTitip ? Colors.teal.shade600 : Colors.indigo.shade600,
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.zero,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 30,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: bisaTitip ? Colors.teal.shade600 : Colors.indigo.shade600,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: bisaTitip ? saatTombolTitip : saatDitekan,
+                        icon: Icon(bisaTitip ? Icons.add_shopping_cart : Icons.info_outline, size: 14),
+                        label: Text(
+                          bisaTitip ? 'Titip' : 'Detail',
+                          style: const TextStyle(fontSize: 11.0, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      onPressed: bisaTitip ? saatTombolTitip : saatDitekan,
-                      icon: Icon(bisaTitip ? Icons.add_shopping_cart : Icons.info_outline, size: 15),
-                      label: Text(
-                        bisaTitip ? 'Titip' : 'Detail',
-                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
-                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],

@@ -210,6 +210,8 @@ class LayananSupabase {
         tanggal: DateTime.now(),
         negaraAsal: 'Jastip Online',
         namaTraveler: 'Traveler',
+        nomorTeleponTraveler: '0819-8765-4321',
+        nomorTeleponPemesan: '0812-3456-7890',
         lokasiTerkini: lokasiTerkini,
         tahapStatus: tahapStatus,
         metodePenyerahan: metodePenyerahan ?? 'COD_LBS',

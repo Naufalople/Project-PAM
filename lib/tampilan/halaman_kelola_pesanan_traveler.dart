@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_firebase.dart';
 import '../layanan/layanan_notifikasi.dart';
@@ -8,6 +10,7 @@ import '../layanan/layanan_otentikasi.dart';
 import '../layanan/layanan_rekber.dart';
 import '../layanan/layanan_sinkronisasi_online.dart';
 import '../model/model_pesanan_jastip.dart';
+import 'halaman_chat_traveler.dart';
 import 'halaman_dompet_rekber.dart';
 import 'halaman_peta_lokasi.dart';
 
@@ -402,6 +405,52 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
           RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
           (m) => '${m[1]}.',
         );
+  }
+
+  Future<void> _hubungiTelepon(String nomor) async {
+    final clean = nomor.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('tel:$clean');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Tidak dapat melakukan panggilan ke $nomor')),
+      );
+    }
+  }
+
+  Future<void> _hubungiWhatsApp(String nomor) async {
+    String clean = nomor.replaceAll(RegExp(r'[^0-9]'), '');
+    if (clean.startsWith('0')) {
+      clean = '62${clean.substring(1)}';
+    }
+    final uri = Uri.parse('https://wa.me/$clean');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Tidak dapat membuka WhatsApp untuk nomor $nomor')),
+      );
+    }
+  }
+
+  void _salinNomorTelepon(String nomor, String namaPihak) {
+    Clipboard.setData(ClipboardData(text: nomor));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Nomor telepon $namaPihak ($nomor) berhasil disalin!')),
+          ],
+        ),
+        backgroundColor: Colors.indigo.shade800,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _dialogTarikDanaTraveler() {
@@ -1400,7 +1449,7 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                             ),
                             const SizedBox(height: 3),
                             Text(
-                              p.idPesanan,
+                              '${p.idPesanan} • 📞 ${p.nomorTeleponPemesan ?? "0812-3456-7890"}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -1522,11 +1571,202 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Asal Belanja: ${pesanan.negaraAsal} • Kode Order: ${pesanan.idPesanan}',
+                    'Pemesan: ${pesanan.namaPemesan ?? "Pemesan"} • Telp: ${pesanan.nomorTeleponPemesan ?? "0812-3456-7890"} • Asal: ${pesanan.negaraAsal}',
                     style: const TextStyle(color: Colors.white70, fontSize: 11),
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 14),
+
+            // ========================================================
+            // KARTU INFORMASI KONTAK PEMESAN (SISI TRAVELER)
+            // ========================================================
+            Builder(
+              builder: (context) {
+                final String namaPemesan = pesanan?.namaPemesan ?? 'Pemesan JastipGo';
+                final noTelpRaw = pesanan?.nomorTeleponPemesan;
+                final String telpPemesan = (noTelpRaw != null && noTelpRaw.isNotEmpty)
+                    ? noTelpRaw
+                    : '0812-3456-7890';
+
+                return Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.indigo.shade200, width: 1.2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.indigo.withValues(alpha: 0.06),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.shade50,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.person_pin_rounded, color: Colors.indigo.shade800, size: 22),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'KONTAK PEMESAN TITIPAN',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black54,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                Text(
+                                  namaPemesan,
+                                  style: const TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'Pemesan',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.indigo.shade900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 18),
+                      // Baris Nomor Telepon Pemesan
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0FDF4),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.green.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.phone_in_talk_rounded, color: Colors.green.shade700, size: 18),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Nomor Telepon Pemesan:',
+                                    style: TextStyle(fontSize: 10.5, color: Colors.black54),
+                                  ),
+                                  Text(
+                                    telpPemesan,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.green.shade900,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Salin Nomor Telepon',
+                              icon: Icon(Icons.copy_rounded, size: 18, color: Colors.indigo.shade800),
+                              onPressed: () {
+                                _salinNomorTelepon(telpPemesan, 'Pemesan');
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      // Tombol Aksi Hubungi (Telepon, WhatsApp, Chat Aplikasi)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.indigo.shade800,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () {
+                                _hubungiTelepon(telpPemesan);
+                              },
+                              icon: const Icon(Icons.call_rounded, size: 15),
+                              label: const Text('Telepon', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green.shade700,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () {
+                                _hubungiWhatsApp(telpPemesan);
+                              },
+                              icon: const Icon(Icons.chat_bubble_rounded, size: 15),
+                              label: const Text('WhatsApp', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.indigo.shade800,
+                                side: BorderSide(color: Colors.indigo.shade600),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => HalamanChatTraveler(
+                                      namaTraveler: 'Dimas Pratama',
+                                      nomorWaTraveler: telpPemesan,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.message_rounded, size: 15),
+                              label: const Text('Chat In-App', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 14),
 

@@ -2017,6 +2017,219 @@ void main() {
       await tester.pump();
     });
   });
+
+  group('Uji Fitur Pesanan: Pemesan dan Traveler Saling Melihat Nomor Telepon', () {
+    test('1. ModelPesananJastip menyimpan dan mengonversi nomorTeleponPemesan dan nomorTeleponTraveler', () {
+      final pesanan = ModelPesananJastip(
+        idPesanan: 'PO-TEST-PHONE-01',
+        namaPemesan: 'Siti Nurhaliza',
+        nomorTeleponPemesan: '081234567890',
+        tanggal: DateTime.now(),
+        negaraAsal: 'Jepang 🇯🇵',
+        namaTraveler: 'Dimas Pratama',
+        nomorTeleponTraveler: '081987654321',
+        lokasiTerkini: 'Sedang di Bandara Narita',
+        totalHargaIdr: 500000,
+        daftarBarang: [],
+      );
+
+      expect(pesanan.nomorTeleponPemesan, '081234567890');
+      expect(pesanan.nomorTeleponTraveler, '081987654321');
+
+      final map = pesanan.keMap();
+      expect(map['nomorTeleponPemesan'], '081234567890');
+      expect(map['nomorTeleponTraveler'], '081987654321');
+
+      final dariMap = ModelPesananJastip.dariMap(map);
+      expect(dariMap.nomorTeleponPemesan, '081234567890');
+      expect(dariMap.nomorTeleponTraveler, '081987654321');
+    });
+
+    testWidgets('2. UI Sisi Pemesan (HalamanStatusPesanan) menampilkan nomor telepon traveler', (tester) async {
+      await tester.runAsync(() async {
+        final pesanan = ModelPesananJastip(
+          idPesanan: 'PO-PEMESAN-VIEW',
+          userId: '1',
+          emailPemesan: 'pemesan@jastipgo.com',
+          namaPemesan: 'Siti Nurhaliza',
+          nomorTeleponPemesan: '081234567890',
+          tanggal: DateTime.now(),
+          negaraAsal: 'Jepang 🇯🇵',
+          namaTraveler: 'Dimas Pratama',
+          nomorTeleponTraveler: '081987654321',
+          lokasiTerkini: 'Sedang di Toko Tokyo',
+          tahapStatus: 1,
+          totalHargaIdr: 250000,
+          daftarBarang: [],
+        );
+        await LayananBasisDataLokal.tambahPesanan(pesanan);
+      });
+
+      final profilPemesan = ModelPengguna(
+        id: 1,
+        nama: 'Siti Nurhaliza',
+        email: 'pemesan@jastipgo.com',
+        passwordHash: 'dummy',
+        nomorTelepon: '081234567890',
+        fotoProfil: '',
+        peran: 'PEMESAN',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HalamanStatusPesanan(
+            idPesananTerpilih: 'PO-PEMESAN-VIEW',
+            profilOverride: profilPemesan,
+            peranOverride: 'PEMESAN',
+          ),
+        ),
+      );
+      for (int i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      // Memastikan nomor telepon traveler tampil pada UI Pemesan
+      expect(find.text('KONTAK TRAVELER JASTIP'), findsOneWidget);
+      expect(find.text('081987654321'), findsWidgets);
+      expect(find.text('Telepon'), findsOneWidget);
+      expect(find.text('WhatsApp'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('3. UI Sisi Traveler (HalamanKelolaPesananTraveler) menampilkan nomor telepon pemesan', (tester) async {
+      await tester.runAsync(() async {
+        final pesanan = ModelPesananJastip(
+          idPesanan: 'PO-TRAVELER-VIEW',
+          userId: '1',
+          emailPemesan: 'pemesan@jastipgo.com',
+          namaPemesan: 'Siti Nurhaliza',
+          nomorTeleponPemesan: '081234567890',
+          tanggal: DateTime.now(),
+          negaraAsal: 'Jepang 🇯🇵',
+          namaTraveler: 'Dimas Pratama',
+          nomorTeleponTraveler: '081987654321',
+          lokasiTerkini: 'Sedang di Toko Tokyo',
+          tahapStatus: 1,
+          totalHargaIdr: 300000,
+          daftarBarang: [],
+        );
+        await LayananBasisDataLokal.tambahPesanan(pesanan);
+      });
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: HalamanKelolaPesananTraveler(
+            idPesananTerpilih: 'PO-TRAVELER-VIEW',
+            peranOverride: 'TRAVELER',
+          ),
+        ),
+      );
+      for (int i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      // Memastikan nomor telepon pemesan tampil pada UI Traveler
+      expect(find.text('KONTAK PEMESAN TITIPAN'), findsOneWidget);
+      expect(find.text('081234567890'), findsWidgets);
+      expect(find.text('Telepon'), findsOneWidget);
+      expect(find.text('WhatsApp'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('4. Skenario Akun Baru: Pemesan baru input no telp kustom -> Memesan barang -> Traveler melihat no telp pemesan baru, dan Pemesan melihat no telp traveler', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const String noTelpPemesanBaru = '0877-9988-1122';
+      final String emailPemesanBaru = 'user_${DateTime.now().microsecondsSinceEpoch}@upn.ac.id';
+      const String namaPemesanBaru = 'Ahmad Pemesan Baru';
+
+      late ModelPengguna profilPemesanBaru;
+
+      await tester.runAsync(() async {
+        // 1. Akun Pemesan baru mendaftar dengan nomor telepon kustom
+        final hasilDaftar = await LayananOtentikasi.prosesDaftarAkunBaru(
+          nama: namaPemesanBaru,
+          email: emailPemesanBaru,
+          password: 'password123',
+          nomorTelepon: noTelpPemesanBaru,
+          peran: 'PEMESAN',
+        );
+        expect(hasilDaftar.berhasil, isTrue);
+
+        final profil = await LayananOtentikasi.ambilProfilAktif();
+        expect(profil, isNotNull);
+        expect(profil!.nomorTelepon, noTelpPemesanBaru);
+        profilPemesanBaru = profil;
+
+        // 2. Pemesan baru membuat pesanan jastip
+        final semuaAkun = await LayananOtentikasi.ambilSemuaAkun();
+        final akunTraveler = semuaAkun.where((a) => a.peran == 'TRAVELER').toList();
+        final traveler = akunTraveler.first;
+
+        final pesananBaru = ModelPesananJastip(
+          idPesanan: 'PO-NEW-USER-CUSTOM-TELP',
+          userId: profil.id.toString(),
+          emailPemesan: profil.email,
+          namaPemesan: profil.nama,
+          nomorTeleponPemesan: profil.nomorTelepon, // Nomor yang dimasukkan saat pendaftaran
+          tanggal: DateTime.now(),
+          negaraAsal: 'Jepang 🇯🇵',
+          namaTraveler: traveler.nama,
+          nomorTeleponTraveler: traveler.nomorTelepon, // Nomor telepon traveler
+          lokasiTerkini: 'Sedang di Ginza, Tokyo 🇯🇵',
+          tahapStatus: 1,
+          totalHargaIdr: 750000,
+          daftarBarang: [],
+        );
+        await LayananBasisDataLokal.tambahPesanan(pesananBaru);
+      });
+
+      // 3. SISI TRAVELER: Traveler membuka pesanan masuk dan melihat no telp kustom milik pemesan baru
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: HalamanKelolaPesananTraveler(
+            idPesananTerpilih: 'PO-NEW-USER-CUSTOM-TELP',
+            peranOverride: 'TRAVELER',
+          ),
+        ),
+      );
+      for (int i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      // Verifikasi nama dan no telp pemesan baru tampil di UI Traveler
+      expect(find.text('KONTAK PEMESAN TITIPAN'), findsOneWidget);
+      expect(find.text(namaPemesanBaru), findsOneWidget);
+      expect(find.text(noTelpPemesanBaru), findsWidgets);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+
+      // 4. SISI PEMESAN BARU: Pemesan baru membuka halaman status pesanan dan melihat no telp traveler
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HalamanStatusPesanan(
+            idPesananTerpilih: 'PO-NEW-USER-CUSTOM-TELP',
+            profilOverride: profilPemesanBaru,
+            peranOverride: 'PEMESAN',
+          ),
+        ),
+      );
+      for (int i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      // Verifikasi traveler contact & traveler phone number tampil di UI Pemesan Baru
+      expect(find.text('KONTAK TRAVELER JASTIP'), findsOneWidget);
+      expect(find.text('081987654321'), findsWidgets);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+  });
 }
 
 

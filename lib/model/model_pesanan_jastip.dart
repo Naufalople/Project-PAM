@@ -54,9 +54,11 @@ class ModelPesananJastip {
   final String? userId; // ID Unik akun pengguna pembuat pesanan
   final String? emailPemesan; // Email akun pemesan untuk isolasi pelacakan
   final String? namaPemesan;
+  final String? nomorTeleponPemesan;
   final DateTime tanggal;
   final String negaraAsal;
   final String namaTraveler;
+  final String? nomorTeleponTraveler;
   String lokasiTerkini;
   int tahapStatus; // 0: Dibatalkan, 1: Rekber Ditahan, 2: Di-ACC, 3: Sudah Dibeli, 4: Penerbangan, 5: Tiba di RI, 6: Selesai
   String metodePenyerahan; // 'COD_LBS' atau 'KURIR_ANTAR'
@@ -75,9 +77,11 @@ class ModelPesananJastip {
     this.userId,
     this.emailPemesan,
     this.namaPemesan,
+    this.nomorTeleponPemesan,
     required this.tanggal,
     required this.negaraAsal,
     required this.namaTraveler,
+    this.nomorTeleponTraveler,
     required this.lokasiTerkini,
     this.tahapStatus = 1,
     this.metodePenyerahan = 'COD_LBS',
@@ -99,11 +103,17 @@ class ModelPesananJastip {
       userId: map['userId']?.toString(),
       emailPemesan: map['emailPemesan']?.toString(),
       namaPemesan: map['namaPemesan']?.toString(),
+      nomorTeleponPemesan: map['nomorTeleponPemesan'] as String? ??
+          map['teleponPemesan'] as String? ??
+          '0812-3456-7890',
       tanggal: map['tanggal'] != null
           ? DateTime.parse(map['tanggal'] as String)
           : DateTime.now(),
       negaraAsal: map['negaraAsal'] as String? ?? 'Jepang 🇯🇵',
       namaTraveler: map['namaTraveler'] as String? ?? 'Dimas Pratama',
+      nomorTeleponTraveler: map['nomorTeleponTraveler'] as String? ??
+          map['teleponTraveler'] as String? ??
+          '0819-8765-4321',
       lokasiTerkini: map['lokasiTerkini'] as String? ?? 'Luar Negeri',
       tahapStatus: (map['tahapStatus'] as num?)?.toInt() ?? 1,
       metodePenyerahan: map['metodePenyerahan'] as String? ?? 'COD_LBS',
@@ -120,9 +130,11 @@ class ModelPesananJastip {
       if (userId != null) 'userId': userId,
       if (emailPemesan != null) 'emailPemesan': emailPemesan,
       if (namaPemesan != null) 'namaPemesan': namaPemesan,
+      if (nomorTeleponPemesan != null) 'nomorTeleponPemesan': nomorTeleponPemesan,
       'tanggal': tanggal.toIso8601String(),
       'negaraAsal': negaraAsal,
       'namaTraveler': namaTraveler,
+      if (nomorTeleponTraveler != null) 'nomorTeleponTraveler': nomorTeleponTraveler,
       'lokasiTerkini': lokasiTerkini,
       'tahapStatus': tahapStatus,
       'metodePenyerahan': metodePenyerahan,

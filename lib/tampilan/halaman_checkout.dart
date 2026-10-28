@@ -278,6 +278,9 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
     final String namaPembeli = profil?.nama ?? 'Pengguna JastipGo';
     final String emailPembeli = profil?.email ?? 'pemesan@jastipgo.com';
     final String userIdPembeli = profil?.id != null ? profil!.id.toString() : '1';
+    final String nomorTeleponPembeli = (profil?.nomorTelepon != null && profil!.nomorTelepon.trim().isNotEmpty)
+        ? profil.nomorTelepon.trim()
+        : '0812-3456-7890';
     final String idPesanan = 'PO-JSTP-${DateTime.now().millisecondsSinceEpoch % 1000000}';
     final String negaraAsal = widget.daftarItem.isNotEmpty ? widget.daftarItem.first.negara : 'Global';
 
@@ -296,7 +299,10 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
     final akunTraveler = semuaAkun.where((a) => a.peran == 'TRAVELER').toList();
     final String namaTravelerAktif = akunTraveler.isNotEmpty
         ? '${akunTraveler.first.nama} (Traveler Terverifikasi)'
-        : 'Traveler Terverifikasi';
+        : 'Dimas Pratama (Traveler Terverifikasi)';
+    final String nomorTeleponTravelerAktif = (akunTraveler.isNotEmpty && akunTraveler.first.nomorTelepon.trim().isNotEmpty)
+        ? akunTraveler.first.nomorTelepon.trim()
+        : '0819-8765-4321';
 
     // 4. Buat dan Simpan Objek Pesanan Lengkap ke Hive dengan Isolasi Akun (Poin 8)
     final ModelPesananJastip pesananBaru = ModelPesananJastip(
@@ -304,9 +310,11 @@ class _HalamanCheckoutState extends State<HalamanCheckout> {
       userId: userIdPembeli,
       emailPemesan: emailPembeli,
       namaPemesan: namaPembeli,
+      nomorTeleponPemesan: nomorTeleponPembeli,
       tanggal: DateTime.now(),
       negaraAsal: negaraAsal,
       namaTraveler: namaTravelerAktif,
+      nomorTeleponTraveler: nomorTeleponTravelerAktif,
       lokasiTerkini: 'Sedang di Toko Resmi $negaraAsal (Menunggu Traveler Meng-ACC)',
       tahapStatus: 1, // Dana Ditahan Rekber
       metodePenyerahan: _metodePenyerahan,

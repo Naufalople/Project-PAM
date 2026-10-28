@@ -286,6 +286,8 @@ class LayananFirebase {
         tanggal: DateTime.now(),
         negaraAsal: 'Jastip Online',
         namaTraveler: 'Traveler',
+        nomorTeleponTraveler: '0819-8765-4321',
+        nomorTeleponPemesan: '0812-3456-7890',
         lokasiTerkini: lokasiTerkini,
         tahapStatus: tahapStatus,
         metodePenyerahan: metodePenyerahan ?? 'COD_LBS',
@@ -510,5 +512,82 @@ class LayananFirebase {
           RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
           (m) => '${m[1]}.',
         );
+  }
+
+  /// Simpan saran dan kesan baru ke Firebase Realtime Database
+  static Future<bool> kirimSaranKesanOnline({
+    required String nama,
+    required String kesan,
+    required String saran,
+    required int rating,
+    String? peran,
+    String? email,
+  }) async {
+    try {
+      final String idKesan = 'FEEDBACK-${DateTime.now().millisecondsSinceEpoch}';
+      final Map<String, dynamic> data = {
+        'id': idKesan,
+        'nama': nama,
+        'email': email ?? '',
+        'peran': peran ?? 'PEMESAN',
+        'kesan': kesan,
+        'saran': saran,
+        'rating': rating,
+        'waktu': DateTime.now().toIso8601String(),
+        'tanggal': _formatWaktuSaranKesan(DateTime.now()),
+      };
+
+      final res = await http
+          .put(
+            Uri.parse('$urlFirebaseDatabase/saran_kesan/$idKesan.json'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(data),
+          )
+          .timeout(const Duration(seconds: 5));
+
+      return res.statusCode == 200 || res.statusCode == 201;
+    } catch (e) {
+      debugPrint('Firebase kirimSaranKesanOnline error: $e');
+      return false;
+    }
+  }
+
+  /// Ambil seluruh riwayat saran dan kesan dari Firebase Realtime Database
+  static Future<List<Map<String, dynamic>>> ambilSemuaSaranKesanOnline() async {
+    try {
+      final res = await http
+          .get(Uri.parse('$urlFirebaseDatabase/saran_kesan.json'))
+          .timeout(const Duration(seconds: 5));
+
+      if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map) {
+          final List<Map<String, dynamic>> hasil = [];
+          for (var entry in decoded.entries) {
+            if (entry.value is Map) {
+              hasil.add(Map<String, dynamic>.from(entry.value));
+            }
+          }
+          hasil.sort((a, b) {
+            final tA = a['waktu']?.toString() ?? '';
+            final tB = b['waktu']?.toString() ?? '';
+            return tB.compareTo(tA);
+          });
+          return hasil;
+        }
+      }
+    } catch (e) {
+      debugPrint('Firebase ambilSemuaSaranKesanOnline error: $e');
+    }
+    return [];
+  }
+
+  static String _formatWaktuSaranKesan(DateTime waktu) {
+    final bulan = [
+      '', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
+    ];
+    final jam = waktu.hour.toString().padLeft(2, '0');
+    final menit = waktu.minute.toString().padLeft(2, '0');
+    return '${waktu.day} ${bulan[waktu.month]} ${waktu.year}, $jam:$menit WIB';
   }
 }

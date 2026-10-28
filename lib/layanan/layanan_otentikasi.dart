@@ -63,7 +63,7 @@ class LayananOtentikasi {
       nama: 'Dimas Pratama',
       email: 'traveler.dimas@jastipgo.com',
       passwordHash: enkripsiPassword('password123'),
-      nomorTelepon: '081234567890',
+      nomorTelepon: '081987654321',
       fotoProfil: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
       peran: 'TRAVELER',
       lokasi: 'Ginza, Tokyo 🇯🇵',

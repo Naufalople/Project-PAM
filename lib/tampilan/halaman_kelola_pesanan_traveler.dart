@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
 import '../layanan/layanan_firebase.dart';
 import '../layanan/layanan_notifikasi.dart';
@@ -10,7 +9,6 @@ import '../layanan/layanan_otentikasi.dart';
 import '../layanan/layanan_rekber.dart';
 import '../layanan/layanan_sinkronisasi_online.dart';
 import '../model/model_pesanan_jastip.dart';
-import 'halaman_chat_traveler.dart';
 import 'halaman_dompet_rekber.dart';
 import 'halaman_peta_lokasi.dart';
 
@@ -405,35 +403,6 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
           RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
           (m) => '${m[1]}.',
         );
-  }
-
-  Future<void> _hubungiTelepon(String nomor) async {
-    final clean = nomor.replaceAll(RegExp(r'[^0-9+]'), '');
-    final uri = Uri.parse('tel:$clean');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    } else {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Tidak dapat melakukan panggilan ke $nomor')),
-      );
-    }
-  }
-
-  Future<void> _hubungiWhatsApp(String nomor) async {
-    String clean = nomor.replaceAll(RegExp(r'[^0-9]'), '');
-    if (clean.startsWith('0')) {
-      clean = '62${clean.substring(1)}';
-    }
-    final uri = Uri.parse('https://wa.me/$clean');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Tidak dapat membuka WhatsApp untuk nomor $nomor')),
-      );
-    }
   }
 
   void _salinNomorTelepon(String nomor, String namaPihak) {
@@ -1701,67 +1670,6 @@ class _HalamanKelolaPesananTravelerState extends State<HalamanKelolaPesananTrave
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      // Tombol Aksi Hubungi (Telepon, WhatsApp, Chat Aplikasi)
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.indigo.shade800,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                              onPressed: () {
-                                _hubungiTelepon(telpPemesan);
-                              },
-                              icon: const Icon(Icons.call_rounded, size: 15),
-                              label: const Text('Telepon', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green.shade700,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                              onPressed: () {
-                                _hubungiWhatsApp(telpPemesan);
-                              },
-                              icon: const Icon(Icons.chat_bubble_rounded, size: 15),
-                              label: const Text('WhatsApp', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.indigo.shade800,
-                                side: BorderSide(color: Colors.indigo.shade600),
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => HalamanChatTraveler(
-                                      namaTraveler: 'Dimas Pratama',
-                                      nomorWaTraveler: telpPemesan,
-                                    ),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.message_rounded, size: 15),
-                              label: const Text('Chat In-App', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),

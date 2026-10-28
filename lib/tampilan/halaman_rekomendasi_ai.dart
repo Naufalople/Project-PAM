@@ -322,6 +322,8 @@ class _HalamanRekomendasiAiState extends State<HalamanRekomendasiAi> with Single
                             const SizedBox(height: 3),
                             Text(
                               '${_barangTerpilihSimulasi!.negara} • ${_barangTerpilihSimulasi!.kategori} • ${LayananAi.ambilTotalPembelian(_barangTerpilihSimulasi!.id)} Terjual',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(fontSize: 11.5, color: Colors.teal.shade900),
                             ),
                           ],
@@ -502,27 +504,29 @@ class _HalamanRekomendasiAiState extends State<HalamanRekomendasiAi> with Single
                         children: [
                           Row(
                             children: [
-                              Text(
-                                '${b.benderaNegara} ${b.negara}',
-                                style: const TextStyle(fontSize: 11.5, color: Colors.black54, fontWeight: FontWeight.w500),
+                              Expanded(
+                                child: Text(
+                                  '${b.benderaNegara} ${b.negara} • ${b.kategori}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.black54,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
                               ),
-                              const Text(' • ', style: TextStyle(fontSize: 11, color: Colors.black38)),
-                              Text(
-                                b.kategori,
-                                style: const TextStyle(fontSize: 11.5, color: Colors.black54),
-                              ),
-                              const Spacer(),
-                              // Match percentage pill
+                              const SizedBox(width: 4),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
                                   color: Colors.purple.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
-                                  '🤖 ${rek.persentaseCocok}% Match',
+                                  '🤖 ${rek.persentaseCocok}%',
                                   style: const TextStyle(
-                                    fontSize: 10,
+                                    fontSize: 9.5,
                                     color: Colors.purple,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -530,27 +534,29 @@ class _HalamanRekomendasiAiState extends State<HalamanRekomendasiAi> with Single
                               ),
                             ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 3),
                           Text(
                             b.namaBarang,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, height: 1.2),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, height: 1.2),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 6),
-                          Row(
+                          const SizedBox(height: 4),
+                          Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 6,
+                            runSpacing: 2,
                             children: [
                               Text(
                                 LayananKonversi.formatRupiah(b.estimasiHargaIdr),
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  fontSize: 13,
+                                  fontSize: 12.5,
                                   color: Colors.teal.shade800,
                                 ),
                               ),
-                              const SizedBox(width: 8),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                 decoration: BoxDecoration(
                                   color: Colors.amber.shade100,
                                   borderRadius: BorderRadius.circular(6),
@@ -558,7 +564,7 @@ class _HalamanRekomendasiAiState extends State<HalamanRekomendasiAi> with Single
                                 child: Text(
                                   '🔥 $totalTerjual Terjual',
                                   style: TextStyle(
-                                    fontSize: 10,
+                                    fontSize: 9.5,
                                     color: Colors.amber.shade900,
                                     fontWeight: FontWeight.bold,
                                   ),

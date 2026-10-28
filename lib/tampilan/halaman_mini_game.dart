@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../layanan/layanan_basisdata_lokal.dart';
@@ -5,183 +6,360 @@ import '../layanan/layanan_konversi.dart';
 import '../layanan/layanan_notifikasi.dart';
 import '../layanan/layanan_otentikasi.dart';
 
-// Halaman Mini Game Sederhana: "Tebak Harga Koper Jastip"
+// Model Data Kartu Memori Jastip
+class ModelKartuJastip {
+  final int id;
+  final int idPasangan;
+  final String nama;
+  final String negara;
+  final String bendera;
+  final IconData ikon;
+  final Color warna;
+  final String fotoUrl;
+  bool terbuka;
+  bool cocok;
+
+  ModelKartuJastip({
+    required this.id,
+    required this.idPasangan,
+    required this.nama,
+    required this.negara,
+    required this.bendera,
+    required this.ikon,
+    required this.warna,
+    required this.fotoUrl,
+    this.terbuka = false,
+    this.cocok = false,
+  });
+}
+
+// Halaman Mini Game Kartu Memori: "Tebak Pasangan Koper Jastip"
 class HalamanMiniGame extends StatefulWidget {
-  const HalamanMiniGame({super.key});
+  final String? peranOverride;
+
+  const HalamanMiniGame({super.key, this.peranOverride});
 
   @override
   State<HalamanMiniGame> createState() => _HalamanMiniGameState();
 }
 
 class _HalamanMiniGameState extends State<HalamanMiniGame> {
-  int _skor = 0;
-  int _nomorSoal = 0;
-  bool _kuisSelesai = false;
+  static const int _durasiAwalDetik = 45; // Waktu tantangan 45 detik
+  int _sisaWaktu = _durasiAwalDetik;
+  Timer? _timer;
+
+  List<ModelKartuJastip> _kartu = [];
+  int? _indeksPilihanPertama;
+  int? _indeksPilihanKedua;
+  bool _sedangMemeriksa = false;
+
+  int _langkah = 0;
+  int _pasanganCocok = 0;
+  static const int _totalPasangan = 6; // 6 Pasang = 12 Kartu (Grid 4x3)
+
+  bool _permainanSelesai = false;
+  bool _menang = false;
   ModelVoucher? _voucherHadiah;
   bool _hadiahSudahPernahDiklaim = false;
+  bool _sedangMemuat = true;
   String _peranAktif = 'PEMESAN';
 
   static const String _kunciVoucherKuisKlaim = 'kuis_voucher_sudah_diklaim';
-  static const String _kunciRiwayatSoalTerjawab = 'riwayat_soal_kuis_terjawab';
+
+  // Master Data 6 Produk Jastip Mancanegara Ikonik
+  final List<Map<String, dynamic>> _masterProduk = [
+    {
+      'nama': 'Naruto Figure',
+      'negara': 'Jepang',
+      'bendera': '🇯🇵',
+      'ikon': Icons.person_pin_circle_rounded,
+      'warna': Colors.deepOrange,
+      'fotoUrl': 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=500',
+    },
+    {
+      'nama': 'Solo Leveling',
+      'negara': 'Korea',
+      'bendera': '🇰🇷',
+      'ikon': Icons.menu_book_rounded,
+      'warna': Colors.deepPurple,
+      'fotoUrl': 'https://images.unsplash.com/photo-1618519764620-7403abdbdfe9?w=500',
+    },
+    {
+      'nama': 'Novel LOTM',
+      'negara': 'China',
+      'bendera': '🇨🇳',
+      'ikon': Icons.auto_stories_rounded,
+      'warna': Colors.amber.shade900,
+      'fotoUrl': 'https://images.unsplash.com/photo-1512820790803-83ca734da794?w=500',
+    },
+    {
+      'nama': 'Tokyo Banana',
+      'negara': 'Jepang',
+      'bendera': '🇯🇵',
+      'ikon': Icons.bakery_dining_rounded,
+      'warna': Colors.amber.shade700,
+      'fotoUrl': 'https://images.unsplash.com/photo-1579954115545-a95591f28bfc?w=500',
+    },
+    {
+      'nama': 'Harrods Tea',
+      'negara': 'London',
+      'bendera': '🇬🇧',
+      'ikon': Icons.emoji_food_beverage_rounded,
+      'warna': Colors.teal.shade800,
+      'fotoUrl': 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=500',
+    },
+    {
+      'nama': 'Bacha Coffee',
+      'negara': 'Singapura',
+      'bendera': '🇸🇬',
+      'ikon': Icons.coffee_rounded,
+      'warna': Colors.brown.shade700,
+      'fotoUrl': 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=500',
+    },
+  ];
 
   @override
   void initState() {
     super.initState();
-    _muatStatusAntiEksploitasi();
+    if (widget.peranOverride != null) {
+      _peranAktif = widget.peranOverride!;
+    }
+    _inisialisasiGame();
   }
 
-  Future<void> _muatStatusAntiEksploitasi() async {
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _inisialisasiGame() async {
     final prefs = await SharedPreferences.getInstance();
     final profil = await LayananOtentikasi.ambilProfilAktif();
     final String userId = profil?.id != null ? profil!.id.toString() : '1';
     final bool pernahKlaim = prefs.getBool('${_kunciVoucherKuisKlaim}_$userId') ?? false;
-    final peran = await LayananOtentikasi.ambilPeranAktif();
-    if (mounted) {
-      setState(() {
-        _peranAktif = peran;
-        _hadiahSudahPernahDiklaim = pernahKlaim;
-      });
-    }
-  }
+    final peran = widget.peranOverride ?? profil?.peran ?? await LayananOtentikasi.ambilPeranAktif();
 
-  final List<Map<String, dynamic>> _daftarSoal = [
-    {
-      'id': 'SOAL-1',
-      'pertanyaan': 'Berapa rata-rata harga sekotak kue Tokyo Banana asli isi 8 di stasiun Tokyo?',
-      'negara': '🇯🇵 Jepang',
-      'pilihan': ['¥500 (~Rp 56.000)', '¥1.200 (~Rp 135.000)', '¥3.500 (~Rp 390.000)'],
-      'jawabanBenar': 1,
-      'fakta': 'Kue Tokyo Banana asli biasanya dibanderol sekitar 1.200 Yen di Tokyo Station!',
-    },
-    {
-      'id': 'SOAL-2',
-      'pertanyaan': 'Berapa harga tas belanja ikonik Harrods Green Bag di Knightsbridge London?',
-      'negara': '🇬🇧 London (UK)',
-      'pilihan': ['£10 (~Rp 206.000)', '£35 (~Rp 720.000)', '£95 (~Rp 1.950.000)'],
-      'jawabanBenar': 1,
-      'fakta': 'Tas belanja Harrods ukuran medium rata-rata dijual seharga £35.',
-    },
-    {
-      'id': 'SOAL-3',
-      'pertanyaan': 'Berapa batas maksimal pembebasan bea cukai barang bawaan pribadi masuk ke Indonesia?',
-      'negara': '🇮🇩 Bea Cukai RI',
-      'pilihan': ['FOB USD 250', 'FOB USD 500', 'FOB USD 1.000'],
-      'jawabanBenar': 1,
-      'fakta': 'Sesuai PMK 203/2017, batas pembebasan bea masuk adalah FOB USD 500 per penumpang.',
-    },
-    {
-      'id': 'SOAL-4',
-      'pertanyaan': 'Di distrik manakah surga belanja skincare dan kosmetik paling terkenal di Seoul?',
-      'negara': '🇰🇷 Korea Selatan',
-      'pilihan': ['Myeongdong', 'Gangnam Station', 'Hongdae Market'],
-      'jawabanBenar': 0,
-      'fakta': 'Myeongdong adalah pusat gerai kosmetik dan Olive Young terbesar di Korea!',
-    },
-  ];
+    if (!mounted) return;
 
-  Future<void> _jawabPertanyaan(int indeksPilihan) async {
-    final bool benar = indeksPilihan == _daftarSoal[_nomorSoal]['jawabanBenar'];
-
-    // Simpan riwayat ID soal yang dijawab ke SharedPreferences lokal
-    final String idSoal = _daftarSoal[_nomorSoal]['id']?.toString() ?? 'SOAL-$_nomorSoal';
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> riwayatSoal = prefs.getStringList(_kunciRiwayatSoalTerjawab) ?? [];
-    if (!riwayatSoal.contains(idSoal)) {
-      riwayatSoal.add(idSoal);
-      await prefs.setStringList(_kunciRiwayatSoalTerjawab, riwayatSoal);
-    }
-
-    int skorBaru = _skor;
-    if (benar) {
-      skorBaru += 25;
-      setState(() => _skor = skorBaru);
-      if (mounted) {
-        LayananNotifikasi.kirimNotifikasi(
-          context,
-          judul: 'Jawaban Benar! 🎯',
-          pesan: '+25 Koin Jastip ditambahkan ke saldo koper Anda.',
-          ikon: Icons.stars,
-          warna: Colors.amber.shade800,
-        );
-      }
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Kurang tepat! Fakta: ${_daftarSoal[_nomorSoal]['fakta']}'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-    }
-
-    if (_nomorSoal < _daftarSoal.length - 1) {
-      setState(() => _nomorSoal++);
-    } else {
-      ModelVoucher? hadiah;
-      if (skorBaru >= 50) {
-        // Validasi Anti-Eksploitasi: Cek apakah voucher kuis sudah pernah diklaim sebelumnya oleh akun ini (Poin 4)
-        if (!_hadiahSudahPernahDiklaim) {
-          final profil = await LayananOtentikasi.ambilProfilAktif();
-          final String userId = profil?.id != null ? profil!.id.toString() : '1';
-          hadiah = ModelVoucher(
-            kode: 'KUIS50',
-            judul: 'Voucher Juara Kuis Rp 50.000',
-            potonganIdr: 50000,
-            deskripsi: 'Hadiah keberhasilan kuis wawasan koper jastip.',
-            userId: userId,
-          );
-          await LayananBasisDataLokal.simpanVoucher(hadiah, userId: userId);
-          await prefs.setBool('${_kunciVoucherKuisKlaim}_$userId', true);
-          await prefs.setBool(_kunciVoucherKuisKlaim, true);
-          _hadiahSudahPernahDiklaim = true;
-
-          if (!mounted) return;
-          LayananNotifikasi.kirimNotifikasi(
-            context,
-            judul: 'Selamat! Voucher Hadiah Diberikan! 🏆',
-            pesan: 'Anda memenangkan Voucher KUIS50 (Potongan Rp 50.000) dan tersimpan di akun Anda!',
-            ikon: Icons.card_giftcard,
-            warna: Colors.indigo.shade800,
-          );
-        } else {
-          // Anti-Eksploitasi: Reward sudah pernah diklaim sebelumnya
-          if (!mounted) return;
-          LayananNotifikasi.kirimNotifikasi(
-            context,
-            judul: 'Kuis Selesai (Mode Latihan) 🎯',
-            pesan: 'Reward voucher kuis ini sudah pernah Anda klaim sebelumnya. Mode latihan tidak memberikan kupon ganda.',
-            ikon: Icons.verified_user_outlined,
-            warna: Colors.teal.shade700,
-          );
-        }
-      }
-
-      setState(() {
-        _voucherHadiah = hadiah;
-        _kuisSelesai = true;
-      });
-    }
-  }
-
-  void _ulangGame() {
     setState(() {
-      _skor = 0;
-      _nomorSoal = 0;
-      _kuisSelesai = false;
+      _peranAktif = peran;
+      _sedangMemuat = false;
+      _hadiahSudahPernahDiklaim = pernahKlaim;
+    });
+
+    // Permainan kartu dan hitung mundur timer HANYA dimulai untuk PEMESAN
+    if (peran != 'TRAVELER') {
+      _resetDanMulaiGame();
+    }
+  }
+
+  void _resetDanMulaiGame() {
+    _timer?.cancel();
+    if (_peranAktif == 'TRAVELER') return;
+
+    // Buat 12 kartu (6 pasang x 2 kartu identik)
+    final List<ModelKartuJastip> daftarBaru = [];
+    int idCounter = 0;
+    for (int i = 0; i < _masterProduk.length; i++) {
+      final item = _masterProduk[i];
+      // Kartu Pertama dari Pasangan
+      daftarBaru.add(ModelKartuJastip(
+        id: idCounter++,
+        idPasangan: i,
+        nama: item['nama'],
+        negara: item['negara'],
+        bendera: item['bendera'],
+        ikon: item['ikon'],
+        warna: item['warna'],
+        fotoUrl: item['fotoUrl'],
+      ));
+      // Kartu Kedua dari Pasangan
+      daftarBaru.add(ModelKartuJastip(
+        id: idCounter++,
+        idPasangan: i,
+        nama: item['nama'],
+        negara: item['negara'],
+        bendera: item['bendera'],
+        ikon: item['ikon'],
+        warna: item['warna'],
+        fotoUrl: item['fotoUrl'],
+      ));
+    }
+
+    // Acak posisi kartu di atas meja koper
+    daftarBaru.shuffle();
+
+    setState(() {
+      _kartu = daftarBaru;
+      _sisaWaktu = _durasiAwalDetik;
+      _langkah = 0;
+      _pasanganCocok = 0;
+      _permainanSelesai = false;
+      _menang = false;
+      _indeksPilihanPertama = null;
+      _indeksPilihanKedua = null;
+      _sedangMemeriksa = false;
       _voucherHadiah = null;
     });
-    _muatStatusAntiEksploitasi();
+
+    _mulaiTimerHitungMundur();
+  }
+
+  void _mulaiTimerHitungMundur() {
+    if (_peranAktif == 'TRAVELER') return;
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_sisaWaktu > 1) {
+        setState(() => _sisaWaktu--);
+      } else {
+        timer.cancel();
+        setState(() {
+          _sisaWaktu = 0;
+          _permainanSelesai = true;
+          _menang = false;
+        });
+
+        LayananNotifikasi.kirimNotifikasi(
+          context,
+          judul: 'Waktu Habis! ⏱️',
+          pesan: 'Anda belum mencocokkan seluruh koper jastip tepat waktu. Coba lagi untuk menang!',
+          ikon: Icons.timer_off_rounded,
+          warna: Colors.red.shade700,
+        );
+      }
+    });
+  }
+
+  Future<void> _bukaKartu(int index) async {
+    // Abaikan klik jika permainan selesai, waktu habis, kartu sudah terbuka/cocok, atau sedang animasi
+    if (_permainanSelesai ||
+        _sedangMemeriksa ||
+        _kartu[index].terbuka ||
+        _kartu[index].cocok) {
+      return;
+    }
+
+    setState(() {
+      _kartu[index].terbuka = true;
+    });
+
+    if (_indeksPilihanPertama == null) {
+      // Pemain baru membuka kartu pertama
+      _indeksPilihanPertama = index;
+    } else {
+      // Pemain membuka kartu kedua -> periksa kecocokan
+      _indeksPilihanKedua = index;
+      _langkah++;
+      _sedangMemeriksa = true;
+
+      final kartuSatu = _kartu[_indeksPilihanPertama!];
+      final kartuDua = _kartu[_indeksPilihanKedua!];
+
+      if (kartuSatu.idPasangan == kartuDua.idPasangan) {
+        // COCOK! Pasangan gambar sama ditemukan
+        setState(() {
+          kartuSatu.cocok = true;
+          kartuDua.cocok = true;
+          _pasanganCocok++;
+          _indeksPilihanPertama = null;
+          _indeksPilihanKedua = null;
+          _sedangMemeriksa = false;
+        });
+
+        // Periksa apakah seluruh 6 pasangan sudah ditemukan (KONDISI MENANG)
+        if (_pasanganCocok == _totalPasangan) {
+          _tanganiKemenangan();
+        }
+      } else {
+        // TIDAK COCOK! Beri jeda 800ms agar pemain dapat mengingat kartu, lalu tutup kembali
+        await Future.delayed(const Duration(milliseconds: 800));
+        if (mounted) {
+          setState(() {
+            kartuSatu.terbuka = false;
+            kartuDua.terbuka = false;
+            _indeksPilihanPertama = null;
+            _indeksPilihanKedua = null;
+            _sedangMemeriksa = false;
+          });
+        }
+      }
+    }
+  }
+
+  Future<void> _tanganiKemenangan() async {
+    _timer?.cancel();
+
+    ModelVoucher? hadiah;
+    final prefs = await SharedPreferences.getInstance();
+
+    if (!_hadiahSudahPernahDiklaim) {
+      final profil = await LayananOtentikasi.ambilProfilAktif();
+      final String userId = profil?.id != null ? profil!.id.toString() : '1';
+
+      hadiah = ModelVoucher(
+        kode: 'MATCH50',
+        judul: '🎉 Voucher Juara Kartu Rp 50.000',
+        potonganIdr: 50000,
+        deskripsi: 'Hadiah kemenangan mencocokkan kartu koper jastip sebelum waktu habis.',
+        userId: userId,
+      );
+
+      await LayananBasisDataLokal.simpanVoucher(hadiah, userId: userId);
+      await prefs.setBool('${_kunciVoucherKuisKlaim}_$userId', true);
+      await prefs.setBool(_kunciVoucherKuisKlaim, true);
+      _hadiahSudahPernahDiklaim = true;
+
+      if (!mounted) return;
+      LayananNotifikasi.kirimNotifikasi(
+        context,
+        judul: 'Luar Biasa! Anda Menang! 🏆',
+        pesan: 'Semua kartu tercocokkan dengan sisa waktu $_sisaWaktu detik! Voucher Rp 50.000 berhasil didapatkan!',
+        ikon: Icons.card_giftcard,
+        warna: Colors.teal.shade800,
+      );
+    } else {
+      if (!mounted) return;
+      LayananNotifikasi.kirimNotifikasi(
+        context,
+        judul: 'Hebat! Kartu Selesai (Mode Latihan) 🎯',
+        pesan: 'Anda berhasil menyelesaikan memori koper jastip dalam $_langkah langkah!',
+        ikon: Icons.verified_user_outlined,
+        warna: Colors.teal.shade700,
+      );
+    }
+
+    setState(() {
+      _permainanSelesai = true;
+      _menang = true;
+      _voucherHadiah = hadiah;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    // Proteksi RBAC: Traveler tidak dapat mengakses Mini Game (Poin 2)
+    if (_sedangMemuat) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF7F9FC),
+        appBar: AppBar(
+          title: const Text('Game Kartu Koper Jastip'),
+          backgroundColor: Colors.indigo.shade800,
+          foregroundColor: Colors.white,
+          elevation: 0,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // Proteksi RBAC: Traveler difokuskan pada logistik pesanan
     if (_peranAktif == 'TRAVELER') {
       return Scaffold(
         backgroundColor: const Color(0xFFF7F9FC),
         appBar: AppBar(
-          title: const Text('Mini Game Koper Jastip'),
+          title: const Text('Game Kartu Koper Jastip'),
           backgroundColor: Colors.indigo.shade800,
           foregroundColor: Colors.white,
           elevation: 0,
@@ -198,7 +376,7 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
                     color: Colors.amber.shade50,
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.sports_esports_outlined, size: 64, color: Colors.amber.shade800),
+                  child: Icon(Icons.style_rounded, size: 64, color: Colors.amber.shade800),
                 ),
                 const SizedBox(height: 20),
                 const Text(
@@ -207,7 +385,7 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Mini game Tebak Harga Koper & klaim voucher diskon belanja hanya diperuntukkan bagi Pemesan jastip.\n\nSebagai Traveler, antarmuka Anda difokuskan pada pemantauan titipan barang masuk, logistik koper, dan pencatatan belanja.',
+                  'Game kartu memori & klaim voucher diskon belanja diperuntukkan bagi Pemesan jastip.\n\nSebagai Traveler, antarmuka Anda difokuskan pada pemantauan titipan barang masuk, logistik bagasi, dan pencatatan struk belanja.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
                 ),
@@ -233,314 +411,471 @@ class _HalamanMiniGameState extends State<HalamanMiniGame> {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
       appBar: AppBar(
-        title: const Text('Mini Game Koper Jastip'),
+        title: const Text('Game Kartu Koper Jastip'),
         backgroundColor: Colors.indigo.shade800,
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'Mulai Ulang',
+            icon: const Icon(Icons.restart_alt_rounded),
+            onPressed: _resetDanMulaiGame,
+          ),
+        ],
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.all(20.0),
-          child: _kuisSelesai
-              ? Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(28),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.06),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: Column(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          child: _permainanSelesai ? _tampilkanLayarHasil() : _tampilkanArenaGame(),
+        ),
+      ),
+    );
+  }
+
+  // Tampilan Utama Arena Permainan Kartu
+  Widget _tampilkanArenaGame() {
+    final double persentaseWaktu = _sisaWaktu / _durasiAwalDetik;
+    final bool waktuKritis = _sisaWaktu <= 10;
+
+    return Column(
+      children: [
+        // Panel Statistik: Waktu, Pasangan, Langkah
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Countdown Timer
+                  Flexible(
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 72),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Permainan Selesai!',
-                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                        Icon(
+                          Icons.timer_rounded,
+                          color: waktuKritis ? Colors.red.shade700 : Colors.indigo.shade700,
+                          size: 18,
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(width: 4),
                         Text(
-                          'Total Skor Anda: $_skor Poin',
+                          '00:${_sisaWaktu.toString().padLeft(2, '0')}',
                           style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.indigo.shade900,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: waktuKritis ? Colors.red.shade700 : Colors.indigo.shade900,
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _skor >= 75
-                              ? 'Luar biasa! Anda seorang ahli traveler jastip sejati!'
-                              : 'Bagus! Tingkatkan lagi wawasan harga jastip Anda.',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 13, color: Colors.black54),
-                        ),
-                        if (_voucherHadiah != null) ...[
-                          const SizedBox(height: 16),
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.amber.shade50,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: Colors.amber.shade400),
-                            ),
-                            child: Column(
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.card_giftcard, color: Colors.amber.shade900, size: 20),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      _voucherHadiah!.judul,
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.amber.shade900),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'KODE: ${_voucherHadiah!.kode} • POTONGAN ${LayananKonversi.formatRupiah(_voucherHadiah!.potonganIdr)}',
-                                  style: TextStyle(fontWeight: FontWeight.w900, color: Colors.indigo.shade900, fontSize: 12),
-                                ),
-                                const SizedBox(height: 4),
-                                const Text(
-                                  '✅ Kupon sudah tersimpan dan otomatis bisa dipilih saat Anda memesan barang!',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 10.5, color: Colors.black54),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                        if (_voucherHadiah == null && _hadiahSudahPernahDiklaim && _skor >= 50) ...[
-                          const SizedBox(height: 16),
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.blueGrey.shade50,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: Colors.blueGrey.shade300),
-                            ),
-                            child: Column(
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.verified_outlined, color: Colors.blueGrey.shade800, size: 20),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Reward Kuis Sudah Pernah Diklaim',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                        color: Colors.blueGrey.shade900,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                const Text(
-                                  'Voucher Rp 50.000 sudah pernah Anda klaim sebelumnya. Sesuai aturan anti-eksploitasi, bermain ulang berfungsi sebagai mode latihan dan tidak memberikan kupon tambahan.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 11, color: Colors.black54),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 24),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.indigo.shade700,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: _ulangGame,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Main Lagi'),
                         ),
                       ],
                     ),
                   ),
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_hadiahSudahPernahDiklaim) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.blueGrey.shade50,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.blueGrey.shade200),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.shield_outlined, color: Colors.blueGrey.shade800, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Mode Latihan: Reward voucher kuis sudah pernah Anda klaim.',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.blueGrey.shade800,
-                                ),
+                  // Pasangan Ditemukan
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Cocok: $_pasanganCocok/$_totalPasangan',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.teal.shade800,
+                      ),
+                    ),
+                  ),
+                  // Jumlah Langkah
+                  Text(
+                    'Langkah: $_langkah',
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black54,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Progress Bar Waktu
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: persentaseWaktu,
+                  minHeight: 5,
+                  backgroundColor: Colors.grey.shade200,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    waktuKritis ? Colors.red.shade600 : Colors.teal.shade600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Petunjuk Singkat (dengan Flexible anti-overflow)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.touch_app_rounded, size: 14, color: Colors.indigo.shade600),
+              const SizedBox(width: 6),
+              const Flexible(
+                child: Text(
+                  'Buka 2 kartu yang sama sebelum waktu habis!',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Grid 12 Kartu (4 baris x 3 kolom)
+        Expanded(
+          child: GridView.builder(
+            physics: const BouncingScrollPhysics(),
+            itemCount: _kartu.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              childAspectRatio: 0.82,
+            ),
+            itemBuilder: (context, index) {
+              final kartu = _kartu[index];
+              return _bangunWidgetKartu(kartu, index);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Desain Kartu Interaktif dengan Status Buka/Tutup/Cocok
+  Widget _bangunWidgetKartu(ModelKartuJastip kartu, int index) {
+    final bool tampilDepan = kartu.terbuka || kartu.cocok;
+
+    return GestureDetector(
+      onTap: () => _bukaKartu(index),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: tampilDepan
+              ? (kartu.cocok ? Colors.teal.shade50 : Colors.white)
+              : Colors.indigo.shade800,
+          border: Border.all(
+            color: kartu.cocok
+                ? Colors.teal.shade500
+                : (tampilDepan ? Colors.indigo.shade200 : Colors.indigo.shade900),
+            width: kartu.cocok ? 2.2 : 1.0,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: tampilDepan
+                  ? (kartu.cocok
+                      ? Colors.teal.withValues(alpha: 0.25)
+                      : Colors.black.withValues(alpha: 0.08))
+                  : Colors.indigo.withValues(alpha: 0.3),
+              blurRadius: 6,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: tampilDepan
+            ? _bangunIsiKartuTerbuka(kartu)
+            : _bangunIsiKartuTertutup(),
+      ),
+    );
+  }
+
+  // Tampilan Depan Kartu (Terbuka): Foto Produk + Ikon + Negara
+  Widget _bangunIsiKartuTerbuka(ModelKartuJastip kartu) {
+    return Padding(
+      padding: const EdgeInsets.all(5.0),
+      child: Column(
+        children: [
+          // Header Bendera & Negara (Anti-Overflow dengan Flexible)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(kartu.bendera, style: const TextStyle(fontSize: 11)),
+              const SizedBox(width: 3),
+              Flexible(
+                child: Text(
+                  kartu.negara,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.bold,
+                    color: kartu.warna,
+                  ),
+                ),
+              ),
+              if (kartu.cocok) ...[
+                const SizedBox(width: 3),
+                Icon(Icons.check_circle, size: 11, color: Colors.teal.shade700),
+              ],
+            ],
+          ),
+          const SizedBox(height: 2),
+          // Gambar Produk
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                color: kartu.warna.withValues(alpha: 0.1),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  kartu.fotoUrl,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Center(
+                      child: Icon(kartu.ikon, color: kartu.warna, size: 24),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          // Nama Produk
+          Text(
+            kartu.nama,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Tampilan Belakang Kartu (Tertutup): Logo Koper Misteri
+  Widget _bangunIsiKartuTertutup() {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.indigo.shade700,
+            Colors.indigo.shade900,
+          ],
+        ),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Icon(
+            Icons.luggage_rounded,
+            size: 38,
+            color: Colors.white.withValues(alpha: 0.85),
+          ),
+          Positioned(
+            bottom: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text(
+                'JASTIP',
+                style: TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Tampilan Layar Hasil (Menang / Kalah Waktu Habis)
+  Widget _tampilkanLayarHasil() {
+    return Center(
+      child: SingleChildScrollView(
+        child: Container(
+          padding: const EdgeInsets.all(26),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 18,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Ikon Hasil
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _menang ? Colors.teal.shade50 : Colors.red.shade50,
+                ),
+                child: Icon(
+                  _menang ? Icons.emoji_events_rounded : Icons.timer_off_rounded,
+                  color: _menang ? Colors.amber.shade700 : Colors.red.shade700,
+                  size: 64,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Judul Hasil
+              Text(
+                _menang ? 'Selamat, Anda Menang! 🎉' : 'Waktu Habis! ⏱️',
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+
+              // Deskripsi Rincian
+              Text(
+                _menang
+                    ? 'Luar biasa! Semua 6 pasangan kartu koper jastip berhasil Anda cocokkan dalam $_langkah langkah dengan sisa waktu $_sisaWaktu detik.'
+                    : 'Waktu 45 detik telah habis! Anda berhasil mencocokkan $_pasanganCocok dari $_totalPasangan pasangan. Coba lagi untuk membuka semua kartu!',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: Colors.black54, height: 1.4),
+              ),
+
+              // Kartu Voucher Hadiah (Jika Menang)
+              if (_voucherHadiah != null) ...[
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.shade50,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.teal.shade300),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.card_giftcard, color: Colors.teal.shade900, size: 22),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              _voucherHadiah!.judul,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13.5,
+                                color: Colors.teal.shade900,
                               ),
                             ),
-                          ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'KODE: ${_voucherHadiah!.kode} • POTONGAN ${LayananKonversi.formatRupiah(_voucherHadiah!.potonganIdr)}',
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: Colors.indigo.shade900,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        '✅ Kupon sudah otomatis tersimpan di dompet akun Anda dan siap digunakan saat checkout!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 11, color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // Info Anti-Eksploitasi (Jika sudah pernah klaim)
+              if (_menang && _voucherHadiah == null && _hadiahSudahPernahDiklaim) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blueGrey.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.shield_outlined, color: Colors.blueGrey.shade700, size: 18),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Mode Latihan: Voucher Rp 50.000 sudah pernah diklaim sebelumnya pada akun ini.',
+                          style: TextStyle(fontSize: 11, color: Colors.black87),
                         ),
                       ),
                     ],
-                    // Status Skor & Nomor Soal
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Soal ${_nomorSoal + 1} dari ${_daftarSoal.length}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.indigo.shade50,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.monetization_on, color: Colors.amber, size: 16),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Skor: $_skor',
-                                style: TextStyle(
-                                  color: Colors.indigo.shade900,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Progress Bar
-                    LinearProgressIndicator(
-                      value: (_nomorSoal + 1) / _daftarSoal.length,
-                      backgroundColor: Colors.grey.shade200,
-                      color: Colors.indigo.shade700,
-                      minHeight: 6,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Kartu Pertanyaan
-                    Container(
-                      padding: const EdgeInsets.all(22),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.indigo.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              _daftarSoal[_nomorSoal]['negara'],
-                              style: TextStyle(
-                                color: Colors.indigo.shade800,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          Text(
-                            _daftarSoal[_nomorSoal]['pertanyaan'],
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                              height: 1.35,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Pilihan Jawaban
-                    ...List.generate(
-                      (_daftarSoal[_nomorSoal]['pilihan'] as List<String>).length,
-                      (index) {
-                        final pilihanTeks = (_daftarSoal[_nomorSoal]['pilihan'] as List<String>)[index];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12.0),
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: Colors.black87,
-                              elevation: 1,
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                side: BorderSide(color: Colors.grey.shade200),
-                              ),
-                              alignment: Alignment.centerLeft,
-                            ),
-                            onPressed: () => _jawabPertanyaan(index),
-                            child: Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 12,
-                                  backgroundColor: Colors.indigo.shade50,
-                                  child: Text(
-                                    String.fromCharCode(65 + index), // A, B, C
-                                    style: TextStyle(
-                                      color: Colors.indigo.shade900,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    pilihanTeks,
-                                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                  ),
                 ),
+              ],
+
+              const SizedBox(height: 24),
+
+              // Tombol Main Lagi / Coba Lagi
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _menang ? Colors.teal.shade800 : Colors.indigo.shade800,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: _resetDanMulaiGame,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(
+                    _menang ? 'Main Lagi' : 'Coba Lagi (Mulai Ulang)',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

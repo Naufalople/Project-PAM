@@ -53,7 +53,7 @@ class _HalamanUtamaState extends State<HalamanUtama> {
       adalahTraveler
           ? const HalamanKelolaPesananTraveler()
           : HalamanKeranjang(padaPindahTab: _pindahKeTab),
-      const HalamanFiturCerdas(),
+      HalamanFiturCerdas(peranOverride: _peranAktif),
       const HalamanProfil(),
     ];
 

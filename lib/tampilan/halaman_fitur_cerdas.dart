@@ -40,11 +40,15 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
   @override
   void didUpdateWidget(covariant HalamanFiturCerdas oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.peranOverride != null && widget.peranOverride != oldWidget.peranOverride) {
-      setState(() {
-        _peranAktif = widget.peranOverride!;
-        _sedangMemuat = false;
-      });
+    if (widget.peranOverride != null) {
+      if (_peranAktif != widget.peranOverride) {
+        setState(() {
+          _peranAktif = widget.peranOverride!;
+          _sedangMemuat = false;
+        });
+      }
+    } else {
+      _muatPeran();
     }
   }
 
@@ -175,12 +179,12 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
           'tag': 'Sensor Suara',
         },
         {
-          'judul': 'Mini Game Koper Jastip',
-          'subjudul': 'Kuis tebak harga barang untuk bonus diskon jastip',
-          'ikon': Icons.videogame_asset_rounded,
+          'judul': 'Game Kartu Koper Jastip',
+          'subjudul': 'Cocokkan pasangan gambar kartu sebelum waktu habis untuk diskon',
+          'ikon': Icons.style_rounded,
           'warna': Colors.indigo.shade700,
-          'halaman': const HalamanMiniGame(),
-          'tag': 'Mini Game',
+          'halaman': HalamanMiniGame(peranOverride: _peranAktif),
+          'tag': 'Game Kartu',
         },
         {
           'judul': 'Zona Waktu Dunia',
@@ -247,6 +251,14 @@ class _HalamanFiturCerdasState extends State<HalamanFiturCerdas> {
                 return InkWell(
                   borderRadius: BorderRadius.circular(18),
                   onTap: () {
+                    if (adalahTraveler && item['halaman'] is HalamanMiniGame) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Fitur game kartu koper hanya tersedia untuk Pemesan.'),
+                        ),
+                      );
+                      return;
+                    }
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) => item['halaman']),
